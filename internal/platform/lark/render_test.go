@@ -30,7 +30,7 @@ func TestRenderPickerReplies(t *testing.T) {
 	f := &fakeSender{}
 	r := &Renderer{S: f}
 	err := r.RenderPicker(context.Background(),
-		core.Reply{ChatID: "oc", InReplyTo: "om_user"}, []core.UseCase{{Name: "a", Ready: true}})
+		core.Reply{ChatID: "oc", InReplyTo: "om_user"}, []core.UseCase{{Name: "a", Ready: true}}, nil)
 	if err != nil {
 		t.Fatalf("err = %v", err)
 	}

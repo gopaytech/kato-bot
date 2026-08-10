@@ -137,3 +137,23 @@ func TestRunBusy429(t *testing.T) {
 		t.Fatalf("want 429, got %v", err)
 	}
 }
+
+func TestRunParsesVerdict(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"run":"r1","phase":"Succeeded","summary":"bad","healthy":false,"headline":"CrashLoopBackOff"}`))
+	}))
+	defer srv.Close()
+
+	c := New(srv.URL, 5*time.Second, false)
+	res, err := c.Run(context.Background(), "uc", map[string]string{"namespace": "n"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if res.Healthy == nil || *res.Healthy != false {
+		t.Errorf("Healthy = %v, want false", res.Healthy)
+	}
+	if res.Headline != "CrashLoopBackOff" {
+		t.Errorf("Headline = %q, want CrashLoopBackOff", res.Headline)
+	}
+}

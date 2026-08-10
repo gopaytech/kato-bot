@@ -40,6 +40,8 @@ type call struct {
 	reply    Reply
 	clusters []Cluster
 	ucs      []UseCase
+	groups   []Group
+	group    Group
 	c        Contract
 	useCase  string
 	inputs   map[string]string
@@ -55,8 +57,12 @@ func (r *fakeRenderer) RenderClusterPicker(_ context.Context, rep Reply, cluster
 	r.calls = append(r.calls, call{kind: "clusterpicker", reply: rep, clusters: clusters})
 	return nil
 }
-func (r *fakeRenderer) RenderPicker(_ context.Context, rep Reply, ucs []UseCase) error {
-	r.calls = append(r.calls, call{kind: "picker", reply: rep, ucs: ucs})
+func (r *fakeRenderer) RenderPicker(_ context.Context, rep Reply, ucs []UseCase, groups []Group) error {
+	r.calls = append(r.calls, call{kind: "picker", reply: rep, ucs: ucs, groups: groups})
+	return nil
+}
+func (r *fakeRenderer) RenderGroupConfirm(_ context.Context, rep Reply, g Group) error {
+	r.calls = append(r.calls, call{kind: "groupconfirm", reply: rep, group: g})
 	return nil
 }
 func (r *fakeRenderer) RenderForm(_ context.Context, rep Reply, c Contract, prefill map[string]string, formErr string) error {

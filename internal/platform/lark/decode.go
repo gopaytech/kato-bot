@@ -39,6 +39,7 @@ func decodeCardAction(raw []byte) (core.Intent, error) {
 	reply := core.Reply{ChatID: p.Context.OpenChatID, MessageID: p.Context.OpenMessageID, Cluster: cluster}
 	action, _ := p.Action.Value["action"].(string)
 	useCase, _ := p.Action.Value["usecase"].(string)
+	group, _ := p.Action.Value["group"].(string)
 	switch action {
 	case "pick_cluster":
 		return core.PickCluster{Reply: reply}, nil
@@ -50,6 +51,10 @@ func decodeCardAction(raw []byte) (core.Intent, error) {
 			inputs = map[string]string{}
 		}
 		return core.SubmitForm{Reply: reply, Name: useCase, Inputs: inputs}, nil
+	case "pick_group":
+		return core.PickGroup{Reply: reply, Name: group}, nil
+	case "run_group":
+		return core.RunGroup{Reply: reply, Name: group}, nil
 	default:
 		return nil, fmt.Errorf("unknown card action %q", action)
 	}

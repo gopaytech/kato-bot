@@ -9,15 +9,53 @@ import (
 	"net/http"
 
 	"github.com/zufardhiyaulhaq/kato-bot/internal/gateway"
+	"github.com/zufardhiyaulhaq/kato-bot/internal/groupapi"
 )
 
 // maxBodyBytes bounds proxied request bodies; kato inputs/params are tiny.
 const maxBodyBytes = 1 << 20
 
+// GroupAPI is the non-interactive front door for predefined groups (backed by
+// internal/groupapi.Service), kept as an interface here so this package never
+// imports internal/platform/lark. Submit launches a group run in the
+// background and returns a runId immediately; GetRun polls it.
+type GroupAPI interface {
+	ListJSON() []byte
+	Submit(name string) (string, *gateway.Error)
+	GetRun(runID string) (*groupapi.RunView, *gateway.Error)
+}
+
 // Register mounts the proxy routes on mux.
-func Register(mux *http.ServeMux, g *gateway.Gateway) {
+func Register(mux *http.ServeMux, g *gateway.Gateway, groups GroupAPI) {
 	mux.HandleFunc("GET /api/v1/clusters", func(w http.ResponseWriter, _ *http.Request) {
 		writeRaw(w, http.StatusOK, g.ClustersJSON())
+	})
+	mux.HandleFunc("GET /api/v1/groups", func(w http.ResponseWriter, _ *http.Request) {
+		writeRaw(w, http.StatusOK, groups.ListJSON())
+	})
+	mux.HandleFunc("POST /api/v1/groups/{name}/run", func(w http.ResponseWriter, r *http.Request) {
+		name := r.PathValue("name")
+		runID, e := groups.Submit(name)
+		if e != nil {
+			writeGatewayErr(w, e)
+			return
+		}
+		b, _ := json.Marshal(map[string]string{"runId": runID, "group": name, "status": "running"})
+		writeRaw(w, http.StatusAccepted, b)
+	})
+	mux.HandleFunc("GET /api/v1/groups/runs/{runId}", func(w http.ResponseWriter, r *http.Request) {
+		runID := r.PathValue("runId")
+		view, e := groups.GetRun(runID)
+		if e != nil {
+			writeGatewayErr(w, e)
+			return
+		}
+		b, err := json.Marshal(view)
+		if err != nil {
+			writeGatewayErr(w, &gateway.Error{Status: http.StatusInternalServerError, Msg: "encode run view: " + err.Error()})
+			return
+		}
+		writeRaw(w, http.StatusOK, b)
 	})
 	proxy := func(pattern string, call func(cl gateway.Client, r *http.Request) (json.RawMessage, error)) {
 		mux.HandleFunc(pattern, func(w http.ResponseWriter, r *http.Request) {

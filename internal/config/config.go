@@ -21,12 +21,24 @@ type ClusterConfig struct {
 	InsecureSkipVerify bool
 }
 
+// GroupConfig is one predefined batch: a UseCase run across a static list of targets
+// in one cluster.
+type GroupConfig struct {
+	Name        string
+	Cluster     string
+	UseCase     string
+	Concurrency int
+	Targets     []map[string]string
+}
+
 // Config is the resolved runtime configuration.
 type Config struct {
 	LarkAppID         string
 	LarkAppSecret     string
 	Clusters          []ClusterConfig
+	Groups            []GroupConfig
 	KatoRunTimeout    time.Duration
+	GroupRunTimeout   time.Duration
 	HealthAddr        string
 	LogLevel          string
 	MaxConcurrentRuns int
@@ -46,6 +58,7 @@ func Load() (Config, error) {
 		HealthAddr:        envOr("HEALTH_ADDR", ":8080"),
 		LogLevel:          envOr("LOG_LEVEL", "info"),
 		KatoRunTimeout:    360 * time.Second,
+		GroupRunTimeout:   1800 * time.Second,
 		MaxConcurrentRuns: 4,
 		// Open-platform base URL. Lark international: https://open.larksuite.com;
 		// Feishu (China): https://open.feishu.cn.
@@ -61,12 +74,25 @@ func Load() (Config, error) {
 	}
 	cfg.Clusters = clusters
 
+	groups, err := loadGroups(envOr("KATO_GROUPS_FILE", "/etc/kato-bot-groups/groups.yaml"))
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.Groups = groups
+
 	if v := os.Getenv("KATO_RUN_TIMEOUT"); v != "" {
 		d, err := time.ParseDuration(v)
 		if err != nil {
 			return Config{}, fmt.Errorf("KATO_RUN_TIMEOUT: %w", err)
 		}
 		cfg.KatoRunTimeout = d
+	}
+	if v := os.Getenv("GROUP_RUN_TIMEOUT"); v != "" {
+		d, err := time.ParseDuration(v)
+		if err != nil {
+			return Config{}, fmt.Errorf("GROUP_RUN_TIMEOUT: %w", err)
+		}
+		cfg.GroupRunTimeout = d
 	}
 	if v := os.Getenv("MAX_CONCURRENT_RUNS"); v != "" {
 		n, err := strconv.Atoi(v)
@@ -130,6 +156,66 @@ func loadClusters(path string) ([]ClusterConfig, error) {
 			URL:                url,
 			Label:              strings.TrimSpace(c.Label),
 			InsecureSkipVerify: c.InsecureSkipVerify,
+		})
+	}
+	return out, nil
+}
+
+// groupsFile mirrors the YAML shape of the groups config file.
+type groupsFile struct {
+	Groups []struct {
+		Name        string              `yaml:"name"`
+		Cluster     string              `yaml:"cluster"`
+		UseCase     string              `yaml:"usecase"`
+		Concurrency int                 `yaml:"concurrency"`
+		Targets     []map[string]string `yaml:"targets"`
+	} `yaml:"groups"`
+}
+
+const defaultGroupConcurrency = 5
+
+// loadGroups reads and validates the groups YAML file. A missing file is not an
+// error (groups are optional) — it yields zero groups. Each group needs a unique
+// non-empty name, a non-empty cluster and usecase, and at least one target.
+func loadGroups(path string) ([]GroupConfig, error) {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("read groups file %s: %w", path, err)
+	}
+	var f groupsFile
+	if err := yaml.Unmarshal(raw, &f); err != nil {
+		return nil, fmt.Errorf("parse groups file %s: %w", path, err)
+	}
+	seen := make(map[string]bool, len(f.Groups))
+	out := make([]GroupConfig, 0, len(f.Groups))
+	for i, g := range f.Groups {
+		name := strings.TrimSpace(g.Name)
+		if name == "" {
+			return nil, fmt.Errorf("groups file %s: group #%d has an empty name", path, i+1)
+		}
+		if seen[name] {
+			return nil, fmt.Errorf("groups file %s: duplicate group name %q", path, name)
+		}
+		if strings.TrimSpace(g.Cluster) == "" {
+			return nil, fmt.Errorf("groups file %s: group %q has an empty cluster", path, name)
+		}
+		if strings.TrimSpace(g.UseCase) == "" {
+			return nil, fmt.Errorf("groups file %s: group %q has an empty usecase", path, name)
+		}
+		if len(g.Targets) == 0 {
+			return nil, fmt.Errorf("groups file %s: group %q has no targets", path, name)
+		}
+		conc := g.Concurrency
+		if conc < 1 {
+			conc = defaultGroupConcurrency
+		}
+		seen[name] = true
+		out = append(out, GroupConfig{
+			Name: name, Cluster: strings.TrimSpace(g.Cluster), UseCase: strings.TrimSpace(g.UseCase),
+			Concurrency: conc, Targets: g.Targets,
 		})
 	}
 	return out, nil

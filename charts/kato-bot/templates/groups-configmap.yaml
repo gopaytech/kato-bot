@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "kato-bot.name" . }}-groups
+  labels:
+    {{- include "kato-bot.labels" . | nindent 4 }}
+data:
+  groups.yaml: |
+    groups:
+    {{- range .Values.groups }}
+      - name: {{ .name | quote }}
+        cluster: {{ .cluster | quote }}
+        usecase: {{ .usecase | quote }}
+        {{- if .concurrency }}
+        concurrency: {{ .concurrency }}
+        {{- end }}
+        targets:
+        {{- range .targets }}
+          - {{ toJson . }}
+        {{- end }}
+    {{- end }}

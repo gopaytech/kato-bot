@@ -160,15 +160,20 @@ func (c *Client) Run(ctx context.Context, name string, inputs map[string]string)
 		return core.RunResult{}, err
 	}
 	var w struct {
-		Run     string `json:"run"`
-		Phase   string `json:"phase"`
-		Summary string `json:"summary"`
-		Warning string `json:"warning"`
+		Run      string `json:"run"`
+		Phase    string `json:"phase"`
+		Summary  string `json:"summary"`
+		Warning  string `json:"warning"`
+		Healthy  *bool  `json:"healthy"`
+		Headline string `json:"headline"`
 	}
 	if err := json.Unmarshal(raw, &w); err != nil {
 		return core.RunResult{}, fmt.Errorf("decode run: %w", err)
 	}
-	return core.RunResult{Run: w.Run, Phase: w.Phase, Summary: w.Summary, Warning: w.Warning}, nil
+	return core.RunResult{
+		Run: w.Run, Phase: w.Phase, Summary: w.Summary, Warning: w.Warning,
+		Healthy: w.Healthy, Headline: w.Headline,
+	}, nil
 }
 
 // ---- raw surface (verbatim proxying for the gateway/MCP/REST front doors) ----

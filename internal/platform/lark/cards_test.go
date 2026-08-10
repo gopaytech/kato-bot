@@ -41,7 +41,7 @@ func TestBuildPickerCard(t *testing.T) {
 	card := buildPickerCard("prod", []core.UseCase{
 		{Name: "pod-crashloop", Description: "Diagnose crashloop", Ready: true},
 		{Name: "broken", Description: "x", Ready: false},
-	})
+	}, nil)
 	m := asMap(t, card)
 	if m["schema"] != "2.0" {
 		t.Errorf("expected card schema 2.0, got %v", m["schema"])

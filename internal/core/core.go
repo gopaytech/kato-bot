@@ -13,6 +13,7 @@ import (
 // adapter to run in a goroutine, preserving the platform's fast-ack requirement.
 type Core struct {
 	Clusters *Registry
+	Groups   *GroupRegistry
 	R        Renderer
 }
 
@@ -33,7 +34,21 @@ func (c *Core) Handle(ctx context.Context, in Intent) (deferred func(context.Con
 		if e != nil {
 			return nil, c.R.RenderError(ctx, v.Reply, friendlyKatoError(e))
 		}
-		return nil, c.R.RenderPicker(ctx, v.Reply, ucs)
+		var groups []Group
+		if c.Groups != nil {
+			groups = c.Groups.ForCluster(v.Reply.Cluster)
+		}
+		return nil, c.R.RenderPicker(ctx, v.Reply, ucs, groups)
+
+	case PickGroup:
+		if c.Groups == nil {
+			return nil, c.R.RenderError(ctx, v.Reply, "groups are not configured")
+		}
+		g, ok := c.Groups.Get(v.Name)
+		if !ok {
+			return nil, c.R.RenderError(ctx, v.Reply, "unknown group "+v.Name)
+		}
+		return nil, c.R.RenderGroupConfirm(ctx, v.Reply, g)
 
 	case PickUseCase:
 		kc, ok := c.Clusters.Get(v.Reply.Cluster)

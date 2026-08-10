@@ -63,8 +63,10 @@ func buildClusterPickerCard(clusters []core.Cluster) string {
 	return card2("kato", elements)
 }
 
-// buildPickerCard lists each UseCase with a Select button (ready ones) or a disabled note.
-func buildPickerCard(cluster string, ucs []core.UseCase) string {
+// buildPickerCard lists each UseCase with a Select button (ready ones) or a disabled note,
+// followed by a Groups section (if any groups are configured for the cluster) with a
+// Run group button per group.
+func buildPickerCard(cluster string, ucs []core.UseCase, groups []core.Group) string {
 	elements := []any{markdown("🔧 **kato** — pick a troubleshooting flow")}
 	elements = append(elements, contextLines(cluster, nil)...)
 	for _, uc := range ucs {
@@ -76,7 +78,33 @@ func buildPickerCard(cluster string, ucs []core.UseCase) string {
 			elements = append(elements, markdown("_not ready (failed validation in cluster)_"))
 		}
 	}
+	if len(groups) > 0 {
+		elements = append(elements, map[string]any{"tag": "hr"}, markdown("**Groups**"))
+		for _, g := range groups {
+			elements = append(elements, markdown(fmt.Sprintf("**%s** · %s · %d targets", g.Name, g.UseCase, len(g.Targets))))
+			elements = append(elements, button2("Run group ▸", map[string]any{"action": "pick_group", "cluster": cluster, "group": g.Name}))
+		}
+	}
 	return card2("kato", elements)
+}
+
+// buildGroupConfirmCard asks the user to confirm running a group before it starts.
+func buildGroupConfirmCard(g core.Group) string {
+	elements := []any{
+		markdown(fmt.Sprintf("📦 **Group: %s**", g.Name)),
+		markdown(fmt.Sprintf("Run **%s** across **%d** targets in **%s**?", g.UseCase, len(g.Targets), g.Cluster)),
+		button2("Run ▸", map[string]any{"action": "run_group", "cluster": g.Cluster, "group": g.Name}),
+	}
+	return card2("kato", elements)
+}
+
+// buildGroupStartedCard acks that a group run has started; progress and results follow
+// as separate cards/replies.
+func buildGroupStartedCard(g core.Group) string {
+	return card2("kato", []any{
+		markdown(fmt.Sprintf("📦 **Group %s started** — running %s across %d targets. Results will appear in this thread.",
+			g.Name, g.UseCase, len(g.Targets))),
+	})
 }
 
 // buildFormCard renders one input per declared input, prefilled, with an optional error

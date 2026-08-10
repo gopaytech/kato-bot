@@ -13,6 +13,7 @@ import (
 	"github.com/zufardhiyaulhaq/kato-bot/internal/config"
 	"github.com/zufardhiyaulhaq/kato-bot/internal/core"
 	"github.com/zufardhiyaulhaq/kato-bot/internal/gateway"
+	"github.com/zufardhiyaulhaq/kato-bot/internal/groupapi"
 	"github.com/zufardhiyaulhaq/kato-bot/internal/kato"
 	mcpserver "github.com/zufardhiyaulhaq/kato-bot/internal/mcp"
 	"github.com/zufardhiyaulhaq/kato-bot/internal/platform/lark"
@@ -36,7 +37,22 @@ func main() {
 		gw.Add(c, kc)
 		names = append(names, cl.Name)
 	}
-	c := &core.Core{Clusters: registry, R: renderer}
+	// Predefined groups: one registry shared by Core (interactive picker/run
+	// flow) and the Adapter (kick-off + threaded reporting), so there is a
+	// single source of truth for group definitions.
+	groupReg := core.NewGroupRegistry()
+	for _, gc := range cfg.Groups {
+		if _, ok := registry.Get(gc.Cluster); !ok {
+			log.Fatalf("group %q references unknown cluster %q", gc.Name, gc.Cluster)
+		}
+		groupReg.Add(core.Group{
+			Name: gc.Name, Cluster: gc.Cluster, UseCase: gc.UseCase,
+			Concurrency: gc.Concurrency, Targets: gc.Targets,
+		})
+	}
+	groupRunner := &core.GroupRunner{Clusters: registry, MaxRetries: 3}
+
+	c := &core.Core{Clusters: registry, Groups: groupReg, R: renderer}
 
 	adapter := &lark.Adapter{
 		AppID:         cfg.LarkAppID,
@@ -47,7 +63,13 @@ func main() {
 		LogLevel:      cfg.LogLevel,
 		MaxConcurrent: cfg.MaxConcurrentRuns,
 		BaseURL:       cfg.LarkBaseURL,
+
+		Groups:       groupReg,
+		GroupRunner:  groupRunner,
+		GroupTimeout: cfg.GroupRunTimeout,
 	}
+
+	gapi := groupapi.New(groupReg, groupRunner, cfg.GroupRunTimeout)
 
 	// Health server for k8s probes (no inbound app traffic; this is liveness only).
 	go func() {
@@ -66,8 +88,8 @@ func main() {
 	// streamable-HTTP endpoint at /mcp and the cluster-prefixed REST proxy.
 	if cfg.APIAddr != "" {
 		apiMux := http.NewServeMux()
-		apiMux.Handle("/mcp", mcpserver.Handler(mcpserver.NewServer(gw)))
-		api.Register(apiMux, gw)
+		apiMux.Handle("/mcp", mcpserver.Handler(mcpserver.NewServer(gw, gapi)))
+		api.Register(apiMux, gw, gapi)
 		go func() {
 			log.Printf("api server (mcp + rest proxy) on %s", cfg.APIAddr)
 			if err := http.ListenAndServe(cfg.APIAddr, apiMux); err != nil {

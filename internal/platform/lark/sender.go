@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	lark "github.com/larksuite/oapi-sdk-go/v3"
+	larkcore "github.com/larksuite/oapi-sdk-go/v3/core"
 	larkim "github.com/larksuite/oapi-sdk-go/v3/service/im/v1"
 )
 
@@ -84,4 +85,30 @@ func (s *apiSender) Patch(ctx context.Context, messageID, cardJSON string) error
 	}
 	log.Printf("lark patch ok (msg=%s)", messageID)
 	return nil
+}
+
+// ReplyID mirrors Reply but returns the new message's id, so the caller can thread
+// further replies (or patches) off it. Used to anchor a group run's parent card when
+// the run was triggered interactively (there is a user message to reply to).
+func (s *apiSender) ReplyID(ctx context.Context, toMessageID, cardJSON string) (string, error) {
+	req := larkim.NewReplyMessageReqBuilder().
+		MessageId(toMessageID).
+		Body(larkim.NewReplyMessageReqBodyBuilder().
+			MsgType("interactive").
+			Content(cardJSON).
+			ReplyInThread(true).
+			Build()).
+		Build()
+	resp, err := s.cli.Im.V1.Message.Reply(ctx, req)
+	if err != nil {
+		log.Printf("lark reply(id) transport error (to=%s): %v", toMessageID, err)
+		return "", err
+	}
+	if !resp.Success() {
+		log.Printf("lark reply(id) FAILED (to=%s): code=%d msg=%s", toMessageID, resp.Code, resp.Msg)
+		return "", fmt.Errorf("lark reply: %s (code %d)", resp.Msg, resp.Code)
+	}
+	id := larkcore.StringValue(resp.Data.MessageId)
+	log.Printf("lark reply(id) ok (to=%s, new message id=%s)", toMessageID, id)
+	return id, nil
 }

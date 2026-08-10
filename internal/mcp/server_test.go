@@ -10,6 +10,7 @@ import (
 
 	"github.com/zufardhiyaulhaq/kato-bot/internal/core"
 	"github.com/zufardhiyaulhaq/kato-bot/internal/gateway"
+	"github.com/zufardhiyaulhaq/kato-bot/internal/groupapi"
 )
 
 // fakeKato mirrors internal/api's fake: records the last call, returns canned bytes.
@@ -51,13 +52,42 @@ func (f *fakeKato) RawGetRun(_ context.Context, name string) (json.RawMessage, e
 	return f.ret()
 }
 
+// fakeGroupAPI is a minimal GroupAPI stand-in that records the last
+// Submit/GetRun call.
+type fakeGroupAPI struct {
+	listJSON []byte
+
+	lastSubmit string
+	submitID   string
+	submitErr  *gateway.Error
+
+	lastGetRun string
+	view       *groupapi.RunView
+	getRunErr  *gateway.Error
+}
+
+func (f *fakeGroupAPI) ListJSON() []byte { return f.listJSON }
+func (f *fakeGroupAPI) Submit(name string) (string, *gateway.Error) {
+	f.lastSubmit = name
+	return f.submitID, f.submitErr
+}
+func (f *fakeGroupAPI) GetRun(runID string) (*groupapi.RunView, *gateway.Error) {
+	f.lastGetRun = runID
+	return f.view, f.getRunErr
+}
+
 // session spins up the MCP server over in-memory transports and returns a
 // connected client session.
 func session(t *testing.T, fake *fakeKato) *sdkmcp.ClientSession {
 	t.Helper()
+	return sessionWithGroups(t, fake, &fakeGroupAPI{listJSON: []byte(`{"groups":[]}`)})
+}
+
+func sessionWithGroups(t *testing.T, fake *fakeKato, groups GroupAPI) *sdkmcp.ClientSession {
+	t.Helper()
 	g := gateway.New()
 	g.Add(core.Cluster{Name: "prod", Label: "Production"}, fake)
-	srv := NewServer(g)
+	srv := NewServer(g, groups)
 
 	st, ct := sdkmcp.NewInMemoryTransports()
 	ctx := context.Background()
@@ -93,7 +123,7 @@ func call(t *testing.T, cs *sdkmcp.ClientSession, tool string, args map[string]a
 	return res
 }
 
-// All 8 tools are registered.
+// All 11 tools are registered.
 func TestToolsRegistered(t *testing.T) {
 	cs := session(t, &fakeKato{resp: json.RawMessage(`{}`)})
 	tools, err := cs.ListTools(context.Background(), &sdkmcp.ListToolsParams{})
@@ -104,6 +134,7 @@ func TestToolsRegistered(t *testing.T) {
 		"list_clusters": false, "list_usecases": false, "get_usecase": false,
 		"run_usecase": false, "list_methods": false, "run_method": false,
 		"list_runs": false, "get_run": false,
+		"list_groups": false, "run_group": false, "get_group_run": false,
 	}
 	for _, tool := range tools.Tools {
 		if _, ok := want[tool.Name]; ok {
@@ -224,6 +255,92 @@ func TestToolErrors(t *testing.T) {
 	res = call(t, cs, "list_usecases", map[string]any{"cluster": "prod"})
 	if !res.IsError || !strings.Contains(textOf(t, res), "kato is busy") {
 		t.Errorf("upstream error: IsError=%v content=%s", res.IsError, textOf(t, res))
+	}
+}
+
+// list_groups returns the group API's JSON verbatim as text.
+func TestListGroups_Verbatim(t *testing.T) {
+	const groupsJSON = `{"groups":[{"name":"g1","cluster":"prod","usecase":"dt","targets":2}]}`
+	groups := &fakeGroupAPI{listJSON: json.RawMessage(groupsJSON)}
+	cs := sessionWithGroups(t, &fakeKato{}, groups)
+	res := call(t, cs, "list_groups", map[string]any{})
+	if res.IsError {
+		t.Fatalf("IsError, content: %s", textOf(t, res))
+	}
+	if got := textOf(t, res); got != groupsJSON {
+		t.Errorf("text = %s, want verbatim %s", got, groupsJSON)
+	}
+}
+
+// run_group takes no cluster, calls groups.Submit, and returns a runId + running status.
+func TestRunGroup_ReturnsRunID(t *testing.T) {
+	groups := &fakeGroupAPI{submitID: "run-abc123"}
+	cs := sessionWithGroups(t, &fakeKato{}, groups)
+	res := call(t, cs, "run_group", map[string]any{"group": "g1"})
+	if res.IsError {
+		t.Fatalf("IsError, content: %s", textOf(t, res))
+	}
+	var got map[string]any
+	if err := json.Unmarshal([]byte(textOf(t, res)), &got); err != nil {
+		t.Fatalf("text not valid JSON: %v (%s)", err, textOf(t, res))
+	}
+	if got["runId"] != "run-abc123" {
+		t.Errorf("result runId = %v, want run-abc123", got["runId"])
+	}
+	if got["status"] != "running" {
+		t.Errorf("result status = %v, want running", got["status"])
+	}
+	if groups.lastSubmit != "g1" {
+		t.Errorf("Submit called with %q, want g1", groups.lastSubmit)
+	}
+}
+
+// run_group surfaces a *gateway.Error from groups.Submit as a tool error.
+func TestRunGroup_Error(t *testing.T) {
+	groups := &fakeGroupAPI{submitErr: &gateway.Error{Status: 404, Msg: "unknown group nope"}}
+	cs := sessionWithGroups(t, &fakeKato{}, groups)
+	res := call(t, cs, "run_group", map[string]any{"group": "nope"})
+	if !res.IsError || !strings.Contains(textOf(t, res), "unknown group nope") {
+		t.Errorf("IsError=%v content=%s", res.IsError, textOf(t, res))
+	}
+}
+
+// get_group_run calls groups.GetRun and returns the RunView JSON on success.
+func TestGetGroupRun_ReturnsView(t *testing.T) {
+	view := &groupapi.RunView{
+		RunID: "run-1", Group: "g1", Cluster: "prod", UseCase: "dt",
+		Status: "done", StartedAt: "2026-08-07T00:00:00Z", CompletedAt: "2026-08-07T00:01:00Z",
+		Result: &groupapi.GroupResult{
+			Group: "g1", Cluster: "prod", UseCase: "dt",
+			Tallies:  groupapi.Tallies{Healthy: 1, Total: 1},
+			Services: []groupapi.ServiceView{{Target: map[string]string{"deployment": "x"}}},
+		},
+	}
+	groups := &fakeGroupAPI{view: view}
+	cs := sessionWithGroups(t, &fakeKato{}, groups)
+	res := call(t, cs, "get_group_run", map[string]any{"run_id": "run-1"})
+	if res.IsError {
+		t.Fatalf("IsError, content: %s", textOf(t, res))
+	}
+	var got map[string]any
+	if err := json.Unmarshal([]byte(textOf(t, res)), &got); err != nil {
+		t.Fatalf("text not valid JSON: %v (%s)", err, textOf(t, res))
+	}
+	if got["runId"] != "run-1" || got["status"] != "done" {
+		t.Errorf("view = %v, want run-1/done", got)
+	}
+	if groups.lastGetRun != "run-1" {
+		t.Errorf("GetRun called with %q, want run-1", groups.lastGetRun)
+	}
+}
+
+// get_group_run surfaces a *gateway.Error from groups.GetRun (unknown runId) as a tool error.
+func TestGetGroupRun_NotFound(t *testing.T) {
+	groups := &fakeGroupAPI{getRunErr: &gateway.Error{Status: 404, Msg: "unknown run nope"}}
+	cs := sessionWithGroups(t, &fakeKato{}, groups)
+	res := call(t, cs, "get_group_run", map[string]any{"run_id": "nope"})
+	if !res.IsError || !strings.Contains(textOf(t, res), "unknown run nope") {
+		t.Errorf("IsError=%v content=%s", res.IsError, textOf(t, res))
 	}
 }
 

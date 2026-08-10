@@ -1,6 +1,7 @@
-// Package mcp is kato-bot's MCP front door: 8 tools over the gateway,
-// served via streamable HTTP. Tool results carry kato's JSON verbatim as
-// text; failures surface as tool errors with the gateway's message.
+// Package mcp is kato-bot's MCP front door: 11 tools over the gateway and
+// group API, served via streamable HTTP. Tool results carry kato's JSON
+// verbatim as text; failures surface as tool errors with the gateway's
+// message.
 package mcp
 
 import (
@@ -13,6 +14,7 @@ import (
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/zufardhiyaulhaq/kato-bot/internal/gateway"
+	"github.com/zufardhiyaulhaq/kato-bot/internal/groupapi"
 )
 
 // serverName/serverVersion identify kato-bot to MCP clients.
@@ -51,8 +53,26 @@ type getRunIn struct {
 	Run     string `json:"run" jsonschema:"run name (from run_usecase's run field or list_runs)"`
 }
 
-// NewServer builds the MCP server with all 8 tools registered over g.
-func NewServer(g *gateway.Gateway) *sdkmcp.Server {
+type runGroupIn struct {
+	Group string `json:"group" jsonschema:"the configured group name (discover via list_groups)"`
+}
+
+type getGroupRunIn struct {
+	RunID string `json:"run_id" jsonschema:"the runId returned by run_group"`
+}
+
+// GroupAPI is the non-interactive front door for predefined groups (backed by
+// internal/groupapi.Service), kept as an interface here so this package never
+// imports internal/platform/lark. Submit launches a group run in the
+// background and returns a runId immediately; GetRun polls it.
+type GroupAPI interface {
+	ListJSON() []byte
+	Submit(name string) (string, *gateway.Error)
+	GetRun(runID string) (*groupapi.RunView, *gateway.Error)
+}
+
+// NewServer builds the MCP server with all 11 tools registered over g and groups.
+func NewServer(g *gateway.Gateway, groups GroupAPI) *sdkmcp.Server {
 	s := sdkmcp.NewServer(&sdkmcp.Implementation{Name: serverName, Version: serverVersion}, nil)
 
 	sdkmcp.AddTool(s, &sdkmcp.Tool{
@@ -126,6 +146,43 @@ func NewServer(g *gateway.Gateway) *sdkmcp.Server {
 	}, proxyTool(g, func(ctx context.Context, cl gateway.Client, in getRunIn) (json.RawMessage, error) {
 		return cl.RawGetRun(ctx, in.Run)
 	}))
+
+	sdkmcp.AddTool(s, &sdkmcp.Tool{
+		Name:        "list_groups",
+		Description: "List the predefined groups (name, cluster, usecase, target count). Call this before run_group to discover a group name.",
+	}, func(_ context.Context, _ *sdkmcp.CallToolRequest, _ any) (*sdkmcp.CallToolResult, any, error) {
+		return textResult(groups.ListJSON()), nil, nil
+	})
+
+	sdkmcp.AddTool(s, &sdkmcp.Tool{
+		Name:        "run_group",
+		Description: "Submit a predefined group to run: the configured use case runs across every target in the group's cluster, in the background, decoupled from this call. ASYNC: returns a runId immediately (status \"running\") instead of waiting for the run to finish. Poll get_group_run with the runId for the JSON result. It does not take a cluster — a group pins its own.",
+	}, func(_ context.Context, _ *sdkmcp.CallToolRequest, in runGroupIn) (*sdkmcp.CallToolResult, any, error) {
+		runID, e := groups.Submit(in.Group)
+		if e != nil {
+			return nil, nil, e
+		}
+		raw, err := json.Marshal(map[string]string{"runId": runID, "status": "running"})
+		if err != nil {
+			return nil, nil, err
+		}
+		return textResult(raw), nil, nil
+	})
+
+	sdkmcp.AddTool(s, &sdkmcp.Tool{
+		Name:        "get_group_run",
+		Description: "Poll a group run submitted via run_group. Returns status (running|done|failed); when done, per-service results and final tallies; when failed, the error.",
+	}, func(_ context.Context, _ *sdkmcp.CallToolRequest, in getGroupRunIn) (*sdkmcp.CallToolResult, any, error) {
+		view, e := groups.GetRun(in.RunID)
+		if e != nil {
+			return nil, nil, e
+		}
+		raw, err := json.Marshal(view)
+		if err != nil {
+			return nil, nil, err
+		}
+		return textResult(raw), nil, nil
+	})
 
 	return s
 }

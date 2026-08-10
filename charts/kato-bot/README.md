@@ -119,6 +119,8 @@ helm install my-kato-bot kato-bot/kato-bot --values values.yaml
 | affinity | object | `{}` | Affinity rules for pod scheduling. |
 | api.enabled | bool | `true` | Enable the MCP + REST proxy listener on port 9090 (MCP at /mcp, cluster-prefixed kato REST proxy at /api/v1/clusters/...). No auth: anyone who can reach the port can run kato on every configured cluster — keep it ClusterIP / network-restricted. |
 | clusters | list | `[{"name":"default","url":"http://kato.kato.svc:8080"}]` | List of kato clusters the bot can target. Each entry needs a unique name and the in-cluster (or reachable) kato REST URL; label is the optional picker button text. Set insecureSkipVerify: true to skip TLS cert verification for an https URL (self-signed certs on a trusted network only; MITM-exposed). |
+| groupRunTimeout | string | `"1800s"` | Overall timeout for one group run (Go duration). |
+| groups | list | `[]` | Predefined groups: run one usecase across a static list of targets in one cluster, reported natively into Lark. cluster must match a configured cluster. |
 | image.pullPolicy | string | `"IfNotPresent"` | Image pull policy. |
 | image.repository | string | `"ghcr.io/zufardhiyaulhaq/kato-bot"` | Container image repository. |
 | image.tag | string | `"v0.2.0"` | Image tag. Defaults to the chart appVersion when empty. |

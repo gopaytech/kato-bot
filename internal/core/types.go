@@ -37,11 +37,13 @@ type Contract struct {
 // the run could not be obtained (transport, timeout, or an HTTP error status); the
 // renderer shows a friendly message in that case.
 type RunResult struct {
-	Run     string
-	Phase   string
-	Summary string
-	Warning string
-	Err     error
+	Run      string
+	Phase    string
+	Summary  string
+	Warning  string
+	Healthy  *bool  // health verdict from kato: true/false; nil = unknown
+	Headline string // one-line reason for Healthy; empty when unknown
+	Err      error
 }
 
 // KatoClient is the kato REST surface the core depends on (implemented by internal/kato).
@@ -54,7 +56,8 @@ type KatoClient interface {
 // Renderer is the outbound port: turn semantic state into platform cards.
 type Renderer interface {
 	RenderClusterPicker(ctx context.Context, r Reply, clusters []Cluster) error
-	RenderPicker(ctx context.Context, r Reply, ucs []UseCase) error
+	RenderPicker(ctx context.Context, r Reply, ucs []UseCase, groups []Group) error
+	RenderGroupConfirm(ctx context.Context, r Reply, g Group) error
 	RenderForm(ctx context.Context, r Reply, c Contract, prefill map[string]string, formErr string) error
 	RenderRunning(ctx context.Context, r Reply, useCase string, inputs map[string]string) error
 	RenderResult(ctx context.Context, r Reply, useCase string, inputs map[string]string, res RunResult) error
@@ -75,11 +78,21 @@ type SubmitForm struct {
 	Name   string
 	Inputs map[string]string
 }
+type PickGroup struct {
+	Reply Reply
+	Name  string
+}
+type RunGroup struct {
+	Reply Reply
+	Name  string
+}
 
 func (ListClusters) isIntent() {}
 func (PickCluster) isIntent()  {}
 func (PickUseCase) isIntent()  {}
 func (SubmitForm) isIntent()   {}
+func (PickGroup) isIntent()    {}
+func (RunGroup) isIntent()     {}
 
 // RunError is a human-facing error message for display in a result card.
 type RunError struct{ Msg string }

@@ -17,6 +17,17 @@ clusters:
     url: http://kato.kato.svc:8080
     # label: Default
     # insecureSkipVerify: false
+# -- Predefined groups: run one usecase across a static list of targets in one
+# cluster, reported natively into Lark. cluster must match a configured cluster.
+groups: []
+#  - name: critical-services
+#    cluster: default
+#    usecase: deployment-troubleshooting
+#    concurrency: 5
+#    targets:
+#      - { namespace: payments, deployment: payment-api }
+# -- Overall timeout for one group run (Go duration).
+groupRunTimeout: 1800s
 # -- Per-run client timeout for kato's synchronous POST /run (Go duration).
 katoRunTimeout: 360s
 # -- Lark SDK log verbosity (debug / info / warn / error).

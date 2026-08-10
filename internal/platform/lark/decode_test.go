@@ -80,3 +80,29 @@ func TestDecodeCardActionUnknown(t *testing.T) {
 		t.Fatal("expected error on unknown action")
 	}
 }
+
+func TestDecodePickGroup(t *testing.T) {
+	raw := []byte(`{"action":{"value":{"action":"pick_group","cluster":"prod-1","group":"critical"}},"context":{"open_chat_id":"oc","open_message_id":"om"}}`)
+	in, err := decodeCardAction(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pg, ok := in.(core.PickGroup)
+	if !ok {
+		t.Fatalf("intent = %T, want core.PickGroup", in)
+	}
+	if pg.Name != "critical" || pg.Reply.Cluster != "prod-1" {
+		t.Errorf("bad PickGroup: %+v", pg)
+	}
+}
+
+func TestDecodeRunGroup(t *testing.T) {
+	raw := []byte(`{"action":{"value":{"action":"run_group","cluster":"prod-1","group":"critical"}},"context":{"open_chat_id":"oc","open_message_id":"om"}}`)
+	in, err := decodeCardAction(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rg, ok := in.(core.RunGroup); !ok || rg.Name != "critical" {
+		t.Fatalf("intent = %T (%+v), want core.RunGroup{critical}", in, in)
+	}
+}

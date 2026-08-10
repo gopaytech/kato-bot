@@ -31,6 +31,10 @@ type Adapter struct {
 	MaxConcurrent int    // cap on in-flight kato runs; <=0 uses defaultMaxConcurrentRuns
 	BaseURL       string // open-platform base URL (e.g. https://open.larksuite.com)
 
+	Groups       *core.GroupRegistry
+	GroupRunner  *core.GroupRunner
+	GroupTimeout time.Duration // per-group run budget; <=0 uses a 30-minute default
+
 	semOnce sync.Once
 	sem     chan struct{}
 
@@ -184,6 +188,11 @@ func (a *Adapter) Start(ctx context.Context) error {
 				return nil, nil
 			}
 			log.Printf("event: card action received (%T)", intent)
+			// A group run executes in the adapter (not core.Handle) because it needs the
+			// Lark group reporter; route it before the generic card-action path.
+			if rg, ok := intent.(core.RunGroup); ok {
+				return a.handleGroupRun(ctx, rg), nil
+			}
 			// Return the updated card in the response (type "raw") so the clicked card
 			// updates inline and stays interactive.
 			return a.handleCardAction(ctx, intent, replyOf(intent)), nil
@@ -204,6 +213,37 @@ func (a *Adapter) dispatch(ctx context.Context, in core.Intent) {
 	if _, err := a.Core.Handle(ctx, in); err != nil {
 		log.Printf("handle %T: %v", in, err)
 	}
+}
+
+// handleGroupRun resolves and gates a group run, launches it in the background, and
+// returns the "started" card synchronously (the callback response). Progress/results
+// are delivered later via the group reporter, threaded under reply.MessageID.
+func (a *Adapter) handleGroupRun(ctx context.Context, v core.RunGroup) *callback.CardActionTriggerResponse {
+	g, ok := a.Groups.Get(v.Name)
+	if !ok {
+		return cardResponse(buildErrorCard("unknown group " + v.Name))
+	}
+	release, ok := a.GroupRunner.TryAcquire(g.Name)
+	if !ok {
+		return cardResponse(buildErrorCard("group " + g.Name + " is already running — wait for it to finish"))
+	}
+	reply := v.Reply
+	go func() {
+		defer release()
+		to := a.GroupTimeout
+		if to <= 0 {
+			to = 30 * time.Minute
+		}
+		bg, cancel := context.WithTimeout(context.Background(), to)
+		defer cancel()
+		reporter := newGroupReporter(a.R.GroupSender())
+		// Interactive: thread the parent card under the confirm card's message.
+		dest := core.GroupDest{InReplyTo: reply.MessageID}
+		if err := a.GroupRunner.Run(bg, g, dest, reporter); err != nil {
+			log.Printf("group run %s: %v", g.Name, err)
+		}
+	}()
+	return cardResponse(buildGroupStartedCard(g))
 }
 
 func derefStr(p *string) string {

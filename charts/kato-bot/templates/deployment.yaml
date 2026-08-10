@@ -16,11 +16,15 @@ spec:
         {{- include "kato-bot.labels" . | nindent 8 }}
       annotations:
         checksum/clusters: {{ include (print $.Template.BasePath "/clusters-configmap.yaml") . | sha256sum }}
+        checksum/groups: {{ include (print $.Template.BasePath "/groups-configmap.yaml") . | sha256sum }}
     spec:
       volumes:
         - name: clusters
           configMap:
             name: {{ include "kato-bot.name" . }}-clusters
+        - name: groups
+          configMap:
+            name: {{ include "kato-bot.name" . }}-groups
       containers:
         - name: kato-bot
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
@@ -37,6 +41,10 @@ spec:
               value: /etc/kato-bot/clusters.yaml
             - name: KATO_RUN_TIMEOUT
               value: {{ .Values.katoRunTimeout | quote }}
+            - name: KATO_GROUPS_FILE
+              value: /etc/kato-bot-groups/groups.yaml
+            - name: GROUP_RUN_TIMEOUT
+              value: {{ .Values.groupRunTimeout | quote }}
             - name: LOG_LEVEL
               value: {{ .Values.logLevel | quote }}
             - name: MAX_CONCURRENT_RUNS
@@ -46,6 +54,9 @@ spec:
           volumeMounts:
             - name: clusters
               mountPath: /etc/kato-bot
+              readOnly: true
+            - name: groups
+              mountPath: /etc/kato-bot-groups
               readOnly: true
           ports:
             - name: health

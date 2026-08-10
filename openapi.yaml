@@ -59,6 +59,11 @@ tags:
     description: Proxied kato built-in check library and direct method execution.
   - name: runs
     description: Proxied kato execution audit records.
+  - name: groups
+    description: >
+      Predefined groups: a fixed usecase run fanned out across a static list
+      of targets in one cluster, reported natively into a Lark chat (not
+      proxied to kato — served and orchestrated by kato-bot itself).
 
 paths:
   /api/v1/clusters:
@@ -404,6 +409,147 @@ paths:
         '502':
           $ref: '#/components/responses/ClusterUnreachable'
 
+  /api/v1/groups:
+    get:
+      tags: [groups]
+      summary: List predefined groups
+      description: >
+        Every predefined group from the groups configuration, in configuration
+        order. Served by kato-bot itself (not proxied to any cluster).
+      operationId: listGroups
+      responses:
+        '200':
+          description: The configured groups.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [groups]
+                properties:
+                  groups:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/GroupView'
+              example:
+                groups:
+                  - name: critical-services
+                    cluster: default
+                    usecase: deployment-troubleshooting
+                    targets: 3
+
+  /api/v1/groups/{name}/run:
+    post:
+      tags: [groups]
+      summary: Submit a predefined group run
+      description: >
+        Submits the group's usecase to run across all of its targets in the
+        background, decoupled from this request, and returns immediately
+        with a runId to poll (`GET /api/v1/groups/runs/{runId}`) for the
+        result. This is the non-interactive twin of the Lark-native group
+        run flow (which instead posts progress into the chat that triggered
+        it) — this endpoint never posts to Lark.
+      operationId: runGroup
+      parameters:
+        - name: name
+          in: path
+          required: true
+          description: A predefined group's name (see `GET /api/v1/groups`).
+          schema:
+            type: string
+      responses:
+        '202':
+          description: The run was submitted and is executing in the background.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [runId, group, status]
+                properties:
+                  runId:
+                    type: string
+                    description: Opaque id to poll via `GET /api/v1/groups/runs/{runId}`.
+                  group:
+                    type: string
+                  status:
+                    type: string
+                    enum: [running]
+              example:
+                runId: 3f9c2b1a7e4d4f0a9c1b2e3d4f5a6b7c
+                group: critical-services
+                status: running
+        '404':
+          description: 'kato-bot: no configured group with that name.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: unknown group critical-services
+        '409':
+          description: 'kato-bot: a run for this group is already in progress.'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: group critical-services is already running
+
+  /api/v1/groups/runs/{runId}:
+    get:
+      tags: [groups]
+      summary: Poll a submitted group run
+      description: >
+        Poll for a group run's status and (once finished) result, by the
+        runId returned from `POST /api/v1/groups/{name}/run`. Runs are held
+        in an in-memory, ephemeral, bounded store (single-replica kato-bot,
+        no persistence) — a restart or long-term eviction loses the record;
+        re-submit the group in that case.
+      operationId: getGroupRun
+      parameters:
+        - name: runId
+          in: path
+          required: true
+          description: A runId returned by `POST /api/v1/groups/{name}/run`.
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The run's current status, and its result once finished.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RunView'
+              example:
+                runId: 3f9c2b1a7e4d4f0a9c1b2e3d4f5a6b7c
+                group: critical-services
+                cluster: default
+                usecase: deployment-troubleshooting
+                status: done
+                startedAt: '2026-08-07T09:00:00Z'
+                completedAt: '2026-08-07T09:04:12Z'
+                result:
+                  group: critical-services
+                  cluster: default
+                  usecase: deployment-troubleshooting
+                  tallies: { healthy: 2, unhealthy: 0, errored: 1, unknown: 0, total: 3 }
+                  services:
+                    - target: { namespace: payments, deployment: payment-api }
+                      healthy: true
+                      headline: OK
+                      phase: Succeeded
+                      run: payment-api-run-1
+                      summary: All checks passed.
+                    - target: { namespace: cart, deployment: cart-api }
+                      error: 'kato 503: kato is busy'
+        '404':
+          description: 'kato-bot: no run with that id (unknown, evicted, or kato-bot restarted).'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: unknown run 3f9c2b1a7e4d4f0a9c1b2e3d4f5a6b7c
+
 components:
   parameters:
     Cluster:
@@ -465,6 +611,137 @@ components:
         label:
           type: string
           description: Optional human-facing name. Omitted when empty.
+
+    GroupView:
+      type: object
+      description: One predefined group.
+      required: [name, cluster, usecase, targets]
+      properties:
+        name:
+          type: string
+          description: Unique group name, used in the path of the run endpoint.
+        cluster:
+          type: string
+          description: The configured cluster this group's usecase runs against.
+        usecase:
+          type: string
+          description: The usecase name run against every target.
+        targets:
+          type: integer
+          description: Number of targets configured for this group.
+
+    GroupResult:
+      type: object
+      description: A finished group run's per-target results and final tallies.
+      required: [group, cluster, usecase, tallies, services]
+      properties:
+        group:
+          type: string
+          description: The group name that was run.
+        cluster:
+          type: string
+          description: The configured cluster the group's usecase ran against.
+        usecase:
+          type: string
+          description: The usecase name run against every target.
+        tallies:
+          $ref: '#/components/schemas/Tallies'
+        services:
+          type: array
+          items:
+            $ref: '#/components/schemas/ServiceView'
+
+    RunView:
+      type: object
+      description: >
+        A submitted group run's status, polled via `GET
+        /api/v1/groups/runs/{runId}`. `result` is set once status is `done`;
+        `error` is set once status is `failed` (the run itself failed to
+        execute — e.g. a config/cluster problem — distinct from individual
+        targets erroring, which is reflected in `result.tallies.errored`).
+      required: [runId, group, cluster, usecase, status, startedAt]
+      properties:
+        runId:
+          type: string
+          description: Opaque id returned by `POST /api/v1/groups/{name}/run`.
+        group:
+          type: string
+          description: The group name that was run.
+        cluster:
+          type: string
+          description: The configured cluster the group's usecase ran against.
+        usecase:
+          type: string
+          description: The usecase name run against every target.
+        status:
+          type: string
+          enum: [running, done, failed]
+        startedAt:
+          type: string
+          format: date-time
+          description: When the run was submitted (RFC3339).
+        completedAt:
+          type: string
+          format: date-time
+          description: When the run reached a terminal state (RFC3339). Omitted while running.
+        result:
+          allOf:
+            - $ref: '#/components/schemas/GroupResult'
+          description: Set when status is `done`.
+        error:
+          type: string
+          description: Set when status is `failed`.
+
+    Tallies:
+      type: object
+      description: Bucket counts across a group run's targets.
+      required: [healthy, unhealthy, errored, unknown, total]
+      properties:
+        healthy:
+          type: integer
+        unhealthy:
+          type: integer
+        errored:
+          type: integer
+          description: The target's kato call failed after retries (a transport/backend failure, distinct from an unhealthy verdict).
+        unknown:
+          type: integer
+          description: kato returned no health verdict for the target.
+        total:
+          type: integer
+
+    ServiceView:
+      type: object
+      description: >
+        One target's outcome within a group run. Either the run fields
+        (healthy/headline/phase/run/summary) or error is populated, matching
+        whether the target's kato call succeeded.
+      required: [target]
+      properties:
+        target:
+          type: object
+          additionalProperties:
+            type: string
+          description: The target's input map, as configured for the group.
+        healthy:
+          type: boolean
+          nullable: true
+          description: Omitted when kato reported no verdict.
+        headline:
+          type: string
+        phase:
+          type: string
+        run:
+          type: string
+          description: The kato Run's metadata.name.
+        summary:
+          type: string
+        warning:
+          type: string
+          description: Set when the run's summary could not be produced but step outputs are valid.
+        error:
+          type: string
+          description: Set when the target's kato call failed after retries; the other run fields are omitted.
 
     # ---- kato schemas, mirrored (responses are proxied verbatim) ----
     # Source of truth: kato's openapi.yaml (github.com/zufardhiyaulhaq/kato).

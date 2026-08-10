@@ -19,8 +19,12 @@ func (r *captureRenderer) RenderClusterPicker(_ context.Context, _ core.Reply, c
 	r.card = buildClusterPickerCard(clusters)
 	return nil
 }
-func (r *captureRenderer) RenderPicker(_ context.Context, rep core.Reply, ucs []core.UseCase) error {
-	r.card = buildPickerCard(rep.Cluster, ucs)
+func (r *captureRenderer) RenderPicker(_ context.Context, rep core.Reply, ucs []core.UseCase, groups []core.Group) error {
+	r.card = buildPickerCard(rep.Cluster, ucs, groups)
+	return nil
+}
+func (r *captureRenderer) RenderGroupConfirm(_ context.Context, _ core.Reply, g core.Group) error {
+	r.card = buildGroupConfirmCard(g)
 	return nil
 }
 func (r *captureRenderer) RenderForm(_ context.Context, rep core.Reply, c core.Contract, prefill map[string]string, formErr string) error {
@@ -63,6 +67,10 @@ func replyOf(in core.Intent) core.Reply {
 		return v.Reply
 	case core.SubmitForm:
 		return v.Reply
+	case core.PickGroup:
+		return v.Reply
+	case core.RunGroup:
+		return v.Reply
 	}
 	return core.Reply{}
 }
@@ -73,7 +81,7 @@ func replyOf(in core.Intent) core.Reply {
 // — after the response window — its result is patched onto the same card.
 func (a *Adapter) handleCardAction(ctx context.Context, in core.Intent, reply core.Reply) *callback.CardActionTriggerResponse {
 	cap := &captureRenderer{}
-	tmp := &core.Core{Clusters: a.Core.Clusters, R: cap}
+	tmp := &core.Core{Clusters: a.Core.Clusters, Groups: a.Core.Groups, R: cap}
 	deferred, err := tmp.Handle(ctx, in)
 	if err != nil {
 		log.Printf("handle %T: %v", in, err)

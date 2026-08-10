@@ -67,6 +67,9 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.LarkBaseURL != "https://open.larksuite.com" {
 		t.Errorf("larkBaseURL = %q", cfg.LarkBaseURL)
 	}
+	if cfg.GroupRunTimeout != 1800*time.Second {
+		t.Errorf("groupRunTimeout = %v, want 1800s", cfg.GroupRunTimeout)
+	}
 }
 
 func TestLoadMaxConcurrentRuns(t *testing.T) {
@@ -134,6 +137,26 @@ func TestLoadBadTimeout(t *testing.T) {
 	}
 }
 
+func TestLoadGroupRunTimeoutOverride(t *testing.T) {
+	setRequiredEnv(t)
+	t.Setenv("GROUP_RUN_TIMEOUT", "60s")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("err = %v", err)
+	}
+	if cfg.GroupRunTimeout != 60*time.Second {
+		t.Errorf("groupRunTimeout = %v, want 60s", cfg.GroupRunTimeout)
+	}
+}
+
+func TestLoadBadGroupRunTimeout(t *testing.T) {
+	setRequiredEnv(t)
+	t.Setenv("GROUP_RUN_TIMEOUT", "notaduration")
+	if _, err := Load(); err == nil {
+		t.Fatal("expected error on bad GROUP_RUN_TIMEOUT duration")
+	}
+}
+
 func TestLoadClustersValidation(t *testing.T) {
 	t.Setenv("LARK_APP_ID", "id")
 	t.Setenv("LARK_APP_SECRET", "sec")
@@ -163,6 +186,105 @@ func TestLoadClustersFileMissing(t *testing.T) {
 	t.Setenv("KATO_CLUSTERS_FILE", filepath.Join(t.TempDir(), "does-not-exist.yaml"))
 	if _, err := Load(); err == nil {
 		t.Fatal("expected an error when the clusters file is missing")
+	}
+}
+
+func TestLoadGroups(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "groups.yaml")
+	os.WriteFile(path, []byte(`
+groups:
+  - name: critical-services
+    cluster: prod-1
+    usecase: deployment-troubleshooting
+    concurrency: 5
+    targets:
+      - { namespace: payments, deployment: payment-api }
+      - { namespace: cart, deployment: cart-api }
+`), 0o600)
+
+	groups, err := loadGroups(path)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(groups) != 1 {
+		t.Fatalf("groups = %d, want 1", len(groups))
+	}
+	g := groups[0]
+	if g.Name != "critical-services" || g.Cluster != "prod-1" || g.UseCase != "deployment-troubleshooting" {
+		t.Errorf("bad group header: %+v", g)
+	}
+	if g.Concurrency != 5 {
+		t.Errorf("bad group knobs: %+v", g)
+	}
+	if len(g.Targets) != 2 || g.Targets[0]["deployment"] != "payment-api" {
+		t.Errorf("bad targets: %+v", g.Targets)
+	}
+}
+
+func TestLoadGroupsValidation(t *testing.T) {
+	dir := t.TempDir()
+	write := func(body string) string {
+		p := filepath.Join(dir, "g.yaml")
+		os.WriteFile(p, []byte(body), 0o600)
+		return p
+	}
+	cases := map[string]string{
+		"dup name":      "groups:\n  - {name: a, cluster: c, usecase: u, targets: [{x: y}]}\n  - {name: a, cluster: c, usecase: u, targets: [{x: y}]}\n",
+		"empty usecase": "groups:\n  - {name: a, cluster: c, usecase: '', targets: [{x: y}]}\n",
+		"no targets":    "groups:\n  - {name: a, cluster: c, usecase: u, targets: []}\n",
+	}
+	for name, body := range cases {
+		t.Run(name, func(t *testing.T) {
+			if _, err := loadGroups(write(body)); err == nil {
+				t.Errorf("expected validation error for %s", name)
+			}
+		})
+	}
+}
+
+func TestLoadGroupsMissingFileIsEmpty(t *testing.T) {
+	groups, err := loadGroups(filepath.Join(t.TempDir(), "nope.yaml"))
+	if err != nil {
+		t.Fatalf("missing groups file must be non-fatal, got %v", err)
+	}
+	if groups != nil {
+		t.Errorf("groups = %+v, want nil", groups)
+	}
+}
+
+// writeGroups writes a groups YAML file to a temp dir and returns its path.
+func writeGroups(t *testing.T, body string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "groups.yaml")
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+const oneGroup = `groups:
+  - name: critical-services
+    cluster: prod-1
+    usecase: deployment-troubleshooting
+    concurrency: 5
+    targets:
+      - { namespace: payments, deployment: payment-api }
+`
+
+func TestLoadGroupsViaLoad(t *testing.T) {
+	setRequiredEnv(t)
+	t.Setenv("KATO_GROUPS_FILE", writeGroups(t, oneGroup))
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("err = %v", err)
+	}
+	if len(cfg.Groups) != 1 {
+		t.Fatalf("groups = %d, want 1", len(cfg.Groups))
+	}
+	if cfg.Groups[0].Name != "critical-services" || cfg.Groups[0].Cluster != "prod-1" {
+		t.Errorf("groups[0] = %+v", cfg.Groups[0])
 	}
 }
 
