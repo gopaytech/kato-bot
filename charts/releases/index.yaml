@@ -2,8 +2,18 @@ apiVersion: v1
 entries:
   kato-bot:
   - apiVersion: v2
+    appVersion: 0.3.0
+    created: "2026-08-10T18:11:59.71863+07:00"
+    description: Lark chat adapter for kato troubleshooting flows
+    digest: 940b02d64d068556f73034f8e35f8d06b431c6bb00be6f9db604b2c66d36ee41
+    name: kato-bot
+    type: application
+    urls:
+    - kato-bot-0.3.0.tgz
+    version: 0.3.0
+  - apiVersion: v2
     appVersion: 0.2.0
-    created: "2026-07-24T09:26:00.777958+07:00"
+    created: "2026-08-10T18:11:59.718479+07:00"
     description: Lark chat adapter for kato troubleshooting flows
     digest: 50d49eadd809d7633ba18788830a5fdf0bbffa132452e9ee320a51e2c2cdec55
     name: kato-bot
@@ -13,7 +23,7 @@ entries:
     version: 0.2.0
   - apiVersion: v2
     appVersion: 0.1.5
-    created: "2026-07-24T09:26:00.777813+07:00"
+    created: "2026-08-10T18:11:59.716973+07:00"
     description: Lark chat adapter for kato troubleshooting flows
     digest: 71443f880fc966540a4ee036c842b2e8aee8e93a3af06636bb38f239ea24cad0
     name: kato-bot
@@ -23,7 +33,7 @@ entries:
     version: 0.1.5
   - apiVersion: v2
     appVersion: 0.1.4
-    created: "2026-07-24T09:26:00.77689+07:00"
+    created: "2026-08-10T18:11:59.713923+07:00"
     description: Lark chat adapter for kato troubleshooting flows
     digest: 8c28f799d94e2f85acea9654c2799e3d2c0896db0ea75cfa657fa7ae8d5c49a5
     name: kato-bot
@@ -33,7 +43,7 @@ entries:
     version: 0.1.4
   - apiVersion: v2
     appVersion: 0.1.3
-    created: "2026-07-24T09:26:00.776634+07:00"
+    created: "2026-08-10T18:11:59.711625+07:00"
     description: Lark chat adapter for kato troubleshooting flows
     digest: 3b4c29aca227beb1be955ffaf02cf6f7757096ccdafc1337de38d497eeaafb91
     name: kato-bot
@@ -43,7 +53,7 @@ entries:
     version: 0.1.3
   - apiVersion: v2
     appVersion: 0.1.2
-    created: "2026-07-24T09:26:00.776405+07:00"
+    created: "2026-08-10T18:11:59.709966+07:00"
     description: Lark chat adapter for kato troubleshooting flows
     digest: e69e3a355adb91a9034dba8ff63512efb52c4c5334fc9677bcb55e68cc5a198e
     name: kato-bot
@@ -53,7 +63,7 @@ entries:
     version: 0.1.2
   - apiVersion: v2
     appVersion: 0.1.1
-    created: "2026-07-24T09:26:00.776175+07:00"
+    created: "2026-08-10T18:11:59.708465+07:00"
     description: Lark chat adapter for kato troubleshooting flows
     digest: 39b23b4e3c88bcd00617a8ee83cc634e7d84c01264f61c687587a22a3ebfcec0
     name: kato-bot
@@ -63,7 +73,7 @@ entries:
     version: 0.1.1
   - apiVersion: v2
     appVersion: 0.1.0
-    created: "2026-07-24T09:26:00.77576+07:00"
+    created: "2026-08-10T18:11:59.701098+07:00"
     description: Lark chat adapter for kato troubleshooting flows
     digest: 824eb6136b4740a120280ab5e67abbadeb785db457800d4da5e46322d96d6e56
     name: kato-bot
@@ -71,4 +81,4 @@ entries:
     urls:
     - kato-bot-0.1.0.tgz
     version: 0.1.0
-generated: "2026-07-24T09:26:00.77522+07:00"
+generated: "2026-08-10T18:11:59.69928+07:00"
