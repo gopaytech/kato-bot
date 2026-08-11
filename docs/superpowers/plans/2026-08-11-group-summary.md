@@ -1,3 +1,4 @@
+{% raw %}
 # Group Summary (LLM) Implementation Plan (Part 2)
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
@@ -635,3 +636,4 @@ Expected: all green; the rendered Secret has `GROUP_SUMMARY_API_KEY`, the Deploy
 - **Spec coverage (Part 2):** LLM client mirrored (Task 1); bounded prompt / non-healthy summaries / byte cap (Task 1); non-fatal nil-client + error → warning (Task 1); async JSON `summary`/`summaryWarning` + `?summary` (Task 2); MCP `summary` bool (Task 2); Lark "Run + summary" button + final reply + reporter results capture (Task 3); config `groupSummary` env + Secret + per-group default (Task 4); chart/openapi/docs (Task 4). Group-only opt-in (single-run flow untouched — no change to `pick`/`run`). Import boundary (summary/groupapi/api/mcp never import lark) held by injecting the client from main.
 - **Placeholder scan:** the config float/int/duration parses in Task 4 Step 1 are described with their exact defaults + the existing guard to mirror (not full code, but unambiguous and pattern-identical to the shown `GROUP_SUMMARY_ENABLED` block); every other code step has real code. Test steps that reuse `newTestService`/`waitForStatus` name the exact helpers to copy. No `TBD`/`handle errors`.
 - **Type consistency:** `summary.Client`/`OpenAIClient`/`Summarize(ctx, client, g, results, maxBytes)` defined in Task 1 and consumed identically in Tasks 2-4. `Service.Summarizer`/`SummaryMaxEvidenceBytes`, `Adapter.Summarizer`/`SummaryMaxEvidenceBytes`, `Submit(name, doSummary bool)`, `RunGroup.Summary`, `groupReporter.Results`, `GroupResult.Summary`/`SummaryWarning`, `Group.Summary`, `GroupConfig.Summary`, `GroupSummaryConfig` — each defined once and referenced consistently across tasks.
+{% endraw %}

@@ -1,3 +1,4 @@
+{% raw %}
 # Group Multi-UseCase Implementation Plan (Part 1)
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
@@ -713,3 +714,4 @@ Expected: all tests green (race clean); the rendered `groups.yaml` shows the nes
 - **Spec coverage (Part 1):** config `usecases:` list + validation (Task 2); flatten to `Items` (Tasks 1-2); `ServiceResult.UseCase` + runner fan-out (Task 1); per-usecase Lark labels + "N targets across M usecases" (Task 3); `ServiceView.usecase` + group list breakdown, drop group-wide usecase (Task 4); chart nested render + values (Task 5); no back-compat / old fields removed (Task 5). One cluster per group, group-level concurrency, no cartesian — all preserved (unchanged runner/gate/timeout).
 - **Placeholder scan:** the only "update existing test X" instructions (Tasks 2-4) name the exact files and the exact new shape to assert; all code steps carry real code. No `TBD`/`add validation`/`handle edge cases`.
 - **Type consistency:** `WorkItem{UseCase, Inputs}`, `Group.Items`, `WorkItems()`, `UseCaseCounts()`/`UseCaseCount{UseCase, Targets}`, `ServiceResult.UseCase` defined in Task 1 and consumed identically in Tasks 2-5. `runOne(ctx, kc, maxRetries, idx, item WorkItem)` new signature is self-consistent within Task 1. `ServiceView.UseCase`/`groupView.UseCases` (Task 4) match the openapi changes in the same task. Deprecated `Group.UseCase`/`Targets` exist Tasks 1-4 and are removed in Task 5 once every consumer sets `Items`.
+{% endraw %}

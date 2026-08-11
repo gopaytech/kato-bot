@@ -1,3 +1,4 @@
+{% raw %}
 # kato-bot Group Runs + Native Lark Reporting Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
@@ -1737,3 +1738,4 @@ git commit -m "feat: wire group runs (main, chart, openapi, docs)"
 - **Spec coverage:** config groups (Task 1); core types + registry (Task 2); verdict consumption (Tasks 2-3); GroupRunner fan-out/retry/buckets (Task 4); Lark parent+service+confirm cards & picker section (Task 5); reporter + threading primitives (Task 6); interactive flow incl. per-group gate (Task 7); endpoint + MCP (Task 8); chart/config/main/openapi/docs (Task 9). Four-way buckets appear in `ServiceResult.Bucket` (Task 2), tallies (Task 4), and both card + reporter (Tasks 5-6). The stateless/single-replica and "single-run untouched" constraints are respected (no DB; picker section is additive; `runSem` untouched).
 - **Placeholder scan:** the only "copy the sibling harness" instructions are in test steps where the plan cannot see the existing test file (Task 3 Step 1, Task 8 Step 1's `newTestService`) — each names exactly what to copy and what to assert. No `TBD`/`add validation`/`handle edge cases`. All code steps carry real code.
 - **Type consistency:** `ServiceResult`/`GroupSummary`/`GroupDest`/`GroupReporter` defined in Task 2, used identically in Tasks 4/6/8. `RunResult.Healthy *bool`/`Headline` added in Task 2, populated in Task 3, consumed in Task 4. `buildGroupParentCard(g, s, done, final)` / `buildServiceReplyCard(g, r)` signatures identical across Tasks 5-6. `GroupAPI{ListJSON, Run}` identical in Tasks 8 (api + mcp). `newGroupReporter`(unexported) + `NewGroupReporter`(exported wrapper) reconciled in Tasks 6/9. Mount-path collision between the two ConfigMaps is explicitly resolved in Task 9 Step 2.
+{% endraw %}
