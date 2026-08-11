@@ -81,7 +81,7 @@ func buildPickerCard(cluster string, ucs []core.UseCase, groups []core.Group) st
 	if len(groups) > 0 {
 		elements = append(elements, map[string]any{"tag": "hr"}, markdown("**Groups**"))
 		for _, g := range groups {
-			elements = append(elements, markdown(fmt.Sprintf("**%s** · %s · %d targets", g.Name, g.UseCase, len(g.Targets))))
+			elements = append(elements, markdown(fmt.Sprintf("**%s** · %s · %d targets · %d usecases", g.Name, g.Cluster, len(g.WorkItems()), len(g.UseCaseCounts()))))
 			elements = append(elements, button2("Run group ▸", map[string]any{"action": "pick_group", "cluster": cluster, "group": g.Name}))
 		}
 	}
@@ -92,9 +92,15 @@ func buildPickerCard(cluster string, ucs []core.UseCase, groups []core.Group) st
 func buildGroupConfirmCard(g core.Group) string {
 	elements := []any{
 		markdown(fmt.Sprintf("📦 **Group: %s**", g.Name)),
-		markdown(fmt.Sprintf("Run **%s** across **%d** targets in **%s**?", g.UseCase, len(g.Targets), g.Cluster)),
-		button2("Run ▸", map[string]any{"action": "run_group", "cluster": g.Cluster, "group": g.Name}),
+		markdown(fmt.Sprintf("Run **%d** targets across **%d** usecases in **%s**?", len(g.WorkItems()), len(g.UseCaseCounts()), g.Cluster)),
 	}
+	for _, uc := range g.UseCaseCounts() {
+		elements = append(elements, markdown(fmt.Sprintf("· %s (%d)", uc.UseCase, uc.Targets)))
+	}
+	elements = append(elements,
+		button2("Run ▸", map[string]any{"action": "run_group", "cluster": g.Cluster, "group": g.Name}),
+		button2("Run + summary ▸", map[string]any{"action": "run_group", "cluster": g.Cluster, "group": g.Name, "summary": true}),
+	)
 	return card2("kato", elements)
 }
 
@@ -102,8 +108,8 @@ func buildGroupConfirmCard(g core.Group) string {
 // as separate cards/replies.
 func buildGroupStartedCard(g core.Group) string {
 	return card2("kato", []any{
-		markdown(fmt.Sprintf("📦 **Group %s started** — running %s across %d targets. Results will appear in this thread.",
-			g.Name, g.UseCase, len(g.Targets))),
+		markdown(fmt.Sprintf("📦 **Group %s started** — running %d targets across %d usecases. Results will appear in this thread.",
+			g.Name, len(g.WorkItems()), len(g.UseCaseCounts()))),
 	})
 }
 

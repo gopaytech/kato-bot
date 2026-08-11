@@ -80,11 +80,11 @@ func TestGroupRunnerFanOut(t *testing.T) {
 	reg.Add(Cluster{Name: "prod-1"}, fk)
 
 	g := Group{
-		Name: "critical", Cluster: "prod-1", UseCase: "dt", Concurrency: 2,
-		Targets: []map[string]string{
-			{"deployment": "cart-api"},
-			{"deployment": "payment-api"},
-			{"deployment": "search-api"}, // no verdict -> unknown
+		Name: "critical", Cluster: "prod-1", Concurrency: 2,
+		Items: []WorkItem{
+			{UseCase: "dt", Inputs: map[string]string{"deployment": "cart-api"}},
+			{UseCase: "dt", Inputs: map[string]string{"deployment": "payment-api"}},
+			{UseCase: "dt", Inputs: map[string]string{"deployment": "search-api"}}, // no verdict -> unknown
 		},
 	}
 	rep := &recReporter{}
@@ -104,6 +104,34 @@ func TestGroupRunnerFanOut(t *testing.T) {
 	}
 	if fk.maxSeen > 2 {
 		t.Errorf("max concurrency = %d, want <= 2", fk.maxSeen)
+	}
+}
+
+// TestGroupRunnerCarriesUseCase proves the runner fans out over g.WorkItems()
+// and stamps each ServiceResult with the UseCase of the item it ran, even when
+// a single group mixes multiple UseCases.
+func TestGroupRunnerCarriesUseCase(t *testing.T) {
+	fk := &groupFakeKato{verdict: map[string]bool{}}
+	reg := NewRegistry()
+	reg.Add(Cluster{Name: "prod-1"}, fk)
+	g := Group{Name: "g", Cluster: "prod-1", Concurrency: 2, Items: []WorkItem{
+		{UseCase: "dt", Inputs: map[string]string{"deployment": "a"}},
+		{UseCase: "http", Inputs: map[string]string{"deployment": "b"}},
+	}}
+	rep := &recReporter{}
+	gr := &GroupRunner{Clusters: reg, MaxRetries: 3, Backoff: func(int) time.Duration { return time.Millisecond }}
+	if err := gr.Run(context.Background(), g, GroupDest{}, rep); err != nil {
+		t.Fatal(err)
+	}
+	byDep := map[string]string{} // deployment -> usecase
+	for _, r := range rep.results {
+		byDep[r.Target["deployment"]] = r.UseCase
+	}
+	if byDep["a"] != "dt" || byDep["b"] != "http" {
+		t.Fatalf("usecase not carried per item: %+v", byDep)
+	}
+	if rep.total != 2 {
+		t.Fatalf("total = %d, want 2", rep.total)
 	}
 }
 
@@ -182,11 +210,11 @@ func TestGroupRunnerRunTerminatesOnCtxCancel(t *testing.T) {
 	reg := NewRegistry()
 	reg.Add(Cluster{Name: "prod-1"}, fk)
 
-	targets := make([]map[string]string, n)
-	for i := range targets {
-		targets[i] = map[string]string{"deployment": "svc"}
+	items := make([]WorkItem, n)
+	for i := range items {
+		items[i] = WorkItem{UseCase: "dt", Inputs: map[string]string{"deployment": "svc"}}
 	}
-	g := Group{Name: "critical", Cluster: "prod-1", UseCase: "dt", Concurrency: n, Targets: targets}
+	g := Group{Name: "critical", Cluster: "prod-1", Concurrency: n, Items: items}
 
 	rep := &finishSignalReporter{finished: make(chan struct{})}
 	gr := &GroupRunner{Clusters: reg, MaxRetries: 0}

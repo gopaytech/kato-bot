@@ -61,9 +61,9 @@ tags:
     description: Proxied kato execution audit records.
   - name: groups
     description: >
-      Predefined groups: a fixed usecase run fanned out across a static list
-      of targets in one cluster, reported natively into a Lark chat (not
-      proxied to kato — served and orchestrated by kato-bot itself).
+      Predefined groups: several usecases, each fanned out across its own
+      static list of targets, in one cluster, reported natively into a Lark
+      chat (not proxied to kato — served and orchestrated by kato-bot itself).
 
 paths:
   /api/v1/clusters:
@@ -434,15 +434,19 @@ paths:
                 groups:
                   - name: critical-services
                     cluster: default
-                    usecase: deployment-troubleshooting
-                    targets: 3
+                    usecases:
+                      - usecase: deployment-troubleshooting
+                        targets: 2
+                      - usecase: http-check
+                        targets: 1
+                    totalTargets: 3
 
   /api/v1/groups/{name}/run:
     post:
       tags: [groups]
       summary: Submit a predefined group run
       description: >
-        Submits the group's usecase to run across all of its targets in the
+        Submits the group's usecases to run across their targets in the
         background, decoupled from this request, and returns immediately
         with a runId to poll (`GET /api/v1/groups/runs/{runId}`) for the
         result. This is the non-interactive twin of the Lark-native group
@@ -456,6 +460,15 @@ paths:
           description: A predefined group's name (see `GET /api/v1/groups`).
           schema:
             type: string
+        - name: summary
+          in: query
+          required: false
+          description: >
+            When true, also produce an LLM group health summary
+            (`result.summary` / `result.summaryWarning` once done). Defaults
+            to the group's per-group `summary` default when omitted.
+          schema:
+            type: boolean
       responses:
         '202':
           description: The run was submitted and is executing in the background.
@@ -523,24 +536,28 @@ paths:
                 runId: 3f9c2b1a7e4d4f0a9c1b2e3d4f5a6b7c
                 group: critical-services
                 cluster: default
-                usecase: deployment-troubleshooting
                 status: done
                 startedAt: '2026-08-07T09:00:00Z'
                 completedAt: '2026-08-07T09:04:12Z'
                 result:
                   group: critical-services
                   cluster: default
-                  usecase: deployment-troubleshooting
                   tallies: { healthy: 2, unhealthy: 0, errored: 1, unknown: 0, total: 3 }
                   services:
-                    - target: { namespace: payments, deployment: payment-api }
+                    - usecase: deployment-troubleshooting
+                      target: { namespace: payments, deployment: payment-api }
                       healthy: true
                       headline: OK
                       phase: Succeeded
                       run: payment-api-run-1
                       summary: All checks passed.
-                    - target: { namespace: cart, deployment: cart-api }
+                    - usecase: http-check
+                      target: { namespace: cart, deployment: cart-api }
                       error: 'kato 503: kato is busy'
+                  summary: >-
+                    2 of 3 healthy. payment-api passed all checks; the
+                    cart-api http-check errored after retries (kato 503,
+                    busy) — retry the group once kato has capacity.
         '404':
           description: 'kato-bot: no run with that id (unknown, evicted, or kato-bot restarted).'
           content:
@@ -615,41 +632,60 @@ components:
     GroupView:
       type: object
       description: One predefined group.
-      required: [name, cluster, usecase, targets]
+      required: [name, cluster, usecases, totalTargets]
       properties:
         name:
           type: string
           description: Unique group name, used in the path of the run endpoint.
         cluster:
           type: string
-          description: The configured cluster this group's usecase runs against.
-        usecase:
-          type: string
-          description: The usecase name run against every target.
-        targets:
+          description: The configured cluster this group's usecases run against.
+        usecases:
+          type: array
+          description: The distinct usecases in this group, each with its target count.
+          items:
+            type: object
+            required: [usecase, targets]
+            properties:
+              usecase:
+                type: string
+                description: The usecase name.
+              targets:
+                type: integer
+                description: Number of targets configured for this usecase within the group.
+        totalTargets:
           type: integer
-          description: Number of targets configured for this group.
+          description: Total number of targets configured for this group, across all usecases.
 
     GroupResult:
       type: object
       description: A finished group run's per-target results and final tallies.
-      required: [group, cluster, usecase, tallies, services]
+      required: [group, cluster, tallies, services]
       properties:
         group:
           type: string
           description: The group name that was run.
         cluster:
           type: string
-          description: The configured cluster the group's usecase ran against.
-        usecase:
-          type: string
-          description: The usecase name run against every target.
+          description: The configured cluster the group ran against.
         tallies:
           $ref: '#/components/schemas/Tallies'
         services:
           type: array
           items:
             $ref: '#/components/schemas/ServiceView'
+        summary:
+          type: string
+          description: >
+            LLM-written group health summary, produced when the run was
+            submitted with `summary=true` (or the group's per-group default
+            is enabled). Omitted when empty.
+        summaryWarning:
+          type: string
+          description: >
+            Set when a summary was requested but could not be produced
+            (e.g. no summarizer configured, or the LLM call failed) — the
+            rest of the result is still valid. Omitted when empty.
 
     RunView:
       type: object
@@ -659,7 +695,7 @@ components:
         `error` is set once status is `failed` (the run itself failed to
         execute — e.g. a config/cluster problem — distinct from individual
         targets erroring, which is reflected in `result.tallies.errored`).
-      required: [runId, group, cluster, usecase, status, startedAt]
+      required: [runId, group, cluster, status, startedAt]
       properties:
         runId:
           type: string
@@ -669,10 +705,7 @@ components:
           description: The group name that was run.
         cluster:
           type: string
-          description: The configured cluster the group's usecase ran against.
-        usecase:
-          type: string
-          description: The usecase name run against every target.
+          description: The configured cluster the group ran against.
         status:
           type: string
           enum: [running, done, failed]
@@ -718,6 +751,9 @@ components:
         whether the target's kato call succeeded.
       required: [target]
       properties:
+        usecase:
+          type: string
+          description: The usecase run against this target.
         target:
           type: object
           additionalProperties:

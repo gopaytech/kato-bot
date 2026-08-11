@@ -15,6 +15,7 @@ import (
 	larkws "github.com/larksuite/oapi-sdk-go/v3/ws"
 
 	"github.com/zufardhiyaulhaq/kato-bot/internal/core"
+	"github.com/zufardhiyaulhaq/kato-bot/internal/summary"
 )
 
 // defaultMaxConcurrentRuns bounds in-flight kato runs when MaxConcurrent is unset.
@@ -34,6 +35,9 @@ type Adapter struct {
 	Groups       *core.GroupRegistry
 	GroupRunner  *core.GroupRunner
 	GroupTimeout time.Duration // per-group run budget; <=0 uses a 30-minute default
+
+	Summarizer              summary.Client // LLM client for the group summary; nil disables it (posts a warning card)
+	SummaryMaxEvidenceBytes int            // <=0 uses summary.DefaultMaxEvidenceBytes
 
 	semOnce sync.Once
 	sem     chan struct{}
@@ -241,6 +245,17 @@ func (a *Adapter) handleGroupRun(ctx context.Context, v core.RunGroup) *callback
 		dest := core.GroupDest{InReplyTo: reply.MessageID}
 		if err := a.GroupRunner.Run(bg, g, dest, reporter); err != nil {
 			log.Printf("group run %s: %v", g.Name, err)
+			return
+		}
+		if v.Summary || g.Summary {
+			sum, warn := summary.Summarize(bg, a.Summarizer, g, reporter.Results, a.SummaryMaxEvidenceBytes)
+			text := sum
+			if warn != "" {
+				text = "⚠️ " + warn
+			}
+			if _, e := a.R.GroupSender().ReplyID(bg, reply.MessageID, buildGroupSummaryCard(g, text)); e != nil {
+				log.Printf("group summary reply %s: %v", g.Name, e)
+			}
 		}
 	}()
 	return cardResponse(buildGroupStartedCard(g))

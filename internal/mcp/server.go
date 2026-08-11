@@ -54,7 +54,8 @@ type getRunIn struct {
 }
 
 type runGroupIn struct {
-	Group string `json:"group" jsonschema:"the configured group name (discover via list_groups)"`
+	Group   string `json:"group" jsonschema:"the configured group name (discover via list_groups)"`
+	Summary bool   `json:"summary,omitempty" jsonschema:"also produce an LLM group summary"`
 }
 
 type getGroupRunIn struct {
@@ -67,7 +68,7 @@ type getGroupRunIn struct {
 // background and returns a runId immediately; GetRun polls it.
 type GroupAPI interface {
 	ListJSON() []byte
-	Submit(name string) (string, *gateway.Error)
+	Submit(name string, summary bool) (string, *gateway.Error)
 	GetRun(runID string) (*groupapi.RunView, *gateway.Error)
 }
 
@@ -158,7 +159,7 @@ func NewServer(g *gateway.Gateway, groups GroupAPI) *sdkmcp.Server {
 		Name:        "run_group",
 		Description: "Submit a predefined group to run: the configured use case runs across every target in the group's cluster, in the background, decoupled from this call. ASYNC: returns a runId immediately (status \"running\") instead of waiting for the run to finish. Poll get_group_run with the runId for the JSON result. It does not take a cluster — a group pins its own.",
 	}, func(_ context.Context, _ *sdkmcp.CallToolRequest, in runGroupIn) (*sdkmcp.CallToolResult, any, error) {
-		runID, e := groups.Submit(in.Group)
+		runID, e := groups.Submit(in.Group, in.Summary)
 		if e != nil {
 			return nil, nil, e
 		}

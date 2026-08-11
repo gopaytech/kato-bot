@@ -106,3 +106,15 @@ func TestDecodeRunGroup(t *testing.T) {
 		t.Fatalf("intent = %T (%+v), want core.RunGroup{critical}", in, in)
 	}
 }
+
+func TestDecodeRunGroupWithSummary(t *testing.T) {
+	raw := []byte(`{"action":{"value":{"action":"run_group","cluster":"prod-1","group":"critical","summary":true}},"context":{"open_chat_id":"oc","open_message_id":"om"}}`)
+	in, err := decodeCardAction(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rg, ok := in.(core.RunGroup)
+	if !ok || !rg.Summary || rg.Name != "critical" {
+		t.Fatalf("intent = %#v, want RunGroup{critical, Summary:true}", in)
+	}
+}

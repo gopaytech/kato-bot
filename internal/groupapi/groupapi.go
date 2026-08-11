@@ -20,6 +20,7 @@ import (
 
 	"github.com/zufardhiyaulhaq/kato-bot/internal/core"
 	"github.com/zufardhiyaulhaq/kato-bot/internal/gateway"
+	"github.com/zufardhiyaulhaq/kato-bot/internal/summary"
 )
 
 // Service submits predefined-group runs on behalf of the REST endpoint and
@@ -35,6 +36,15 @@ type Service struct {
 	Runner  *core.GroupRunner
 	Timeout time.Duration // bounds each run; <=0 falls back to defaultGroupTimeout
 
+	// Summarizer, if set, is used to produce an LLM group summary when Submit
+	// is called with doSummary=true. Left nil until main wires it (Task 4);
+	// nil-safe — summary.Summarize treats a nil client as "not configured"
+	// and returns a warning instead of erroring.
+	Summarizer summary.Client
+	// SummaryMaxEvidenceBytes bounds the evidence sent to the summarizer;
+	// <=0 falls back to summary.DefaultMaxEvidenceBytes.
+	SummaryMaxEvidenceBytes int
+
 	mu   sync.Mutex
 	runs map[string]*runRecord
 }
@@ -47,11 +57,16 @@ func New(groups *core.GroupRegistry, runner *core.GroupRunner, timeout time.Dura
 	return &Service{Groups: groups, Runner: runner, Timeout: timeout, runs: map[string]*runRecord{}}
 }
 
-type groupView struct {
-	Name    string `json:"name"`
-	Cluster string `json:"cluster"`
+type groupUseCaseView struct {
 	UseCase string `json:"usecase"`
 	Targets int    `json:"targets"`
+}
+
+type groupView struct {
+	Name         string             `json:"name"`
+	Cluster      string             `json:"cluster"`
+	UseCases     []groupUseCaseView `json:"usecases"`
+	TotalTargets int                `json:"totalTargets"`
 }
 
 // ListJSON renders {"groups":[...]}.
@@ -59,7 +74,11 @@ func (s *Service) ListJSON() []byte {
 	gs := s.Groups.List()
 	views := make([]groupView, 0, len(gs))
 	for _, g := range gs {
-		views = append(views, groupView{Name: g.Name, Cluster: g.Cluster, UseCase: g.UseCase, Targets: len(g.Targets)})
+		ucs := make([]groupUseCaseView, 0)
+		for _, c := range g.UseCaseCounts() {
+			ucs = append(ucs, groupUseCaseView{UseCase: c.UseCase, Targets: c.Targets})
+		}
+		views = append(views, groupView{Name: g.Name, Cluster: g.Cluster, UseCases: ucs, TotalTargets: len(g.WorkItems())})
 	}
 	b, _ := json.Marshal(map[string]any{"groups": views})
 	return b
@@ -89,6 +108,7 @@ type Tallies struct {
 
 // ServiceView is one target's outcome within a group run's JSON result.
 type ServiceView struct {
+	UseCase  string            `json:"usecase,omitempty"`
 	Target   map[string]string `json:"target"`
 	Healthy  *bool             `json:"healthy,omitempty"`
 	Headline string            `json:"headline,omitempty"`
@@ -103,11 +123,12 @@ type ServiceView struct {
 // tallies, and every service's outcome. Delivered via RunView.Result once a
 // submitted run reaches "done".
 type GroupResult struct {
-	Group    string        `json:"group"`
-	Cluster  string        `json:"cluster"`
-	UseCase  string        `json:"usecase"`
-	Tallies  Tallies       `json:"tallies"`
-	Services []ServiceView `json:"services"`
+	Group          string        `json:"group"`
+	Cluster        string        `json:"cluster"`
+	Tallies        Tallies       `json:"tallies"`
+	Services       []ServiceView `json:"services"`
+	Summary        string        `json:"summary,omitempty"`
+	SummaryWarning string        `json:"summaryWarning,omitempty"`
 }
 
 // runStatus is a run's lifecycle state as exposed over JSON.
@@ -120,14 +141,13 @@ const (
 )
 
 // runRecord is a submitted group run's mutable state, held in Service.runs
-// under Service.mu. StartedAt/Group/Cluster/UseCase are set once at Submit
-// and never change; Status/CompletedAt/Result/ErrMsg are set once, by the
-// background goroutine, when the run reaches a terminal state.
+// under Service.mu. StartedAt/Group/Cluster are set once at Submit and never
+// change; Status/CompletedAt/Result/ErrMsg are set once, by the background
+// goroutine, when the run reaches a terminal state.
 type runRecord struct {
 	ID          string
 	Group       string
 	Cluster     string
-	UseCase     string
 	Status      runStatus
 	StartedAt   time.Time
 	CompletedAt time.Time // zero while running
@@ -140,7 +160,6 @@ type RunView struct {
 	RunID       string       `json:"runId"`
 	Group       string       `json:"group"`
 	Cluster     string       `json:"cluster"`
-	UseCase     string       `json:"usecase"`
 	Status      string       `json:"status"` // running|done|failed
 	StartedAt   string       `json:"startedAt"`
 	CompletedAt string       `json:"completedAt,omitempty"`
@@ -155,11 +174,21 @@ type RunView struct {
 // unknown group; 409 if a run for this group (from either this path or the
 // interactive Lark path) is already in flight — both entry points share one
 // gate via core.GroupRunner.TryAcquire.
-func (s *Service) Submit(name string) (string, *gateway.Error) {
+//
+// If doSummary is true and the run succeeds, an LLM group summary is
+// produced via s.Summarizer (summary.Summarize) before the result is
+// published — total/non-fatal: a nil Summarizer or a summarizer error yields
+// an empty Summary and a non-empty SummaryWarning, never an error. The
+// summarize call happens outside s.mu (it's a network call) so the lock is
+// never held across it.
+func (s *Service) Submit(name string, doSummary bool) (string, *gateway.Error) {
 	g, ok := s.Groups.Get(name)
 	if !ok {
 		return "", &gateway.Error{Status: http.StatusNotFound, Msg: "unknown group " + name}
 	}
+	// Honor the group's per-group summary default when the caller didn't
+	// explicitly request one — matches the Lark gate (v.Summary || g.Summary).
+	doSummary = doSummary || g.Summary
 	release, ok := s.Runner.TryAcquire(name)
 	if !ok {
 		return "", &gateway.Error{Status: http.StatusConflict, Msg: "group " + name + " is already running"}
@@ -170,7 +199,6 @@ func (s *Service) Submit(name string) (string, *gateway.Error) {
 		ID:        runID,
 		Group:     g.Name,
 		Cluster:   g.Cluster,
-		UseCase:   g.UseCase,
 		Status:    statusRunning,
 		StartedAt: time.Now(),
 	}
@@ -198,6 +226,18 @@ func (s *Service) Submit(name string) (string, *gateway.Error) {
 		rep := &core.CollectingReporter{}
 		err := s.Runner.Run(ctx, g, core.GroupDest{}, rep)
 
+		// Build the result and (optionally) summarize it BEFORE taking s.mu —
+		// summary.Summarize makes a network call to the LLM client, and the
+		// lock must never be held across that.
+		var res *GroupResult
+		if err == nil {
+			res = buildGroupResult(g, rep)
+			if doSummary {
+				maxBytes := s.SummaryMaxEvidenceBytes
+				res.Summary, res.SummaryWarning = summary.Summarize(ctx, s.Summarizer, g, rep.Results, maxBytes)
+			}
+		}
+
 		s.mu.Lock()
 		defer s.mu.Unlock()
 		if err != nil {
@@ -205,7 +245,7 @@ func (s *Service) Submit(name string) (string, *gateway.Error) {
 			rec.ErrMsg = err.Error()
 		} else {
 			rec.Status = statusDone
-			rec.Result = buildGroupResult(g, rep)
+			rec.Result = res
 		}
 		rec.CompletedAt = time.Now()
 	}()
@@ -230,7 +270,6 @@ func viewOf(r *runRecord) *RunView {
 		RunID:     r.ID,
 		Group:     r.Group,
 		Cluster:   r.Cluster,
-		UseCase:   r.UseCase,
 		Status:    string(r.Status),
 		StartedAt: r.StartedAt.UTC().Format(time.RFC3339),
 		Result:    r.Result,
@@ -292,6 +331,7 @@ func buildGroupResult(g core.Group, rep *core.CollectingReporter) *GroupResult {
 	services := make([]ServiceView, 0, len(rep.Results))
 	for _, r := range rep.Results {
 		sv := ServiceView{
+			UseCase:  r.UseCase,
 			Target:   r.Target,
 			Healthy:  r.Healthy,
 			Headline: r.Headline,
@@ -308,7 +348,6 @@ func buildGroupResult(g core.Group, rep *core.CollectingReporter) *GroupResult {
 	return &GroupResult{
 		Group:   g.Name,
 		Cluster: g.Cluster,
-		UseCase: g.UseCase,
 		Tallies: Tallies{
 			Healthy:   rep.Summary.Healthy,
 			Unhealthy: rep.Summary.Unhealthy,

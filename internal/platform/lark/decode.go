@@ -54,7 +54,8 @@ func decodeCardAction(raw []byte) (core.Intent, error) {
 	case "pick_group":
 		return core.PickGroup{Reply: reply, Name: group}, nil
 	case "run_group":
-		return core.RunGroup{Reply: reply, Name: group}, nil
+		summary, _ := p.Action.Value["summary"].(bool)
+		return core.RunGroup{Reply: reply, Name: group, Summary: summary}, nil
 	default:
 		return nil, fmt.Errorf("unknown card action %q", action)
 	}

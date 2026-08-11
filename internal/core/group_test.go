@@ -28,6 +28,29 @@ func TestServiceResultBucket(t *testing.T) {
 	}
 }
 
+func TestGroupWorkItemsFromItems(t *testing.T) {
+	g := Group{Items: []WorkItem{
+		{UseCase: "dt", Inputs: map[string]string{"deployment": "a"}},
+		{UseCase: "http", Inputs: map[string]string{"target": "x"}},
+	}}
+	wi := g.WorkItems()
+	if len(wi) != 2 || wi[0].UseCase != "dt" || wi[1].UseCase != "http" {
+		t.Fatalf("WorkItems from Items = %+v", wi)
+	}
+}
+
+func TestGroupUseCaseCounts(t *testing.T) {
+	g := Group{Items: []WorkItem{
+		{UseCase: "dt", Inputs: map[string]string{"deployment": "a"}},
+		{UseCase: "http", Inputs: map[string]string{"target": "x"}},
+		{UseCase: "dt", Inputs: map[string]string{"deployment": "b"}},
+	}}
+	got := g.UseCaseCounts()
+	if len(got) != 2 || got[0].UseCase != "dt" || got[0].Targets != 2 || got[1].UseCase != "http" || got[1].Targets != 1 {
+		t.Fatalf("UseCaseCounts = %+v (want dt:2, http:1 in order)", got)
+	}
+}
+
 func TestGroupRegistryForCluster(t *testing.T) {
 	reg := NewGroupRegistry()
 	reg.Add(Group{Name: "a", Cluster: "prod-1"})
@@ -47,7 +70,7 @@ func TestGroupRegistryForCluster(t *testing.T) {
 // appends results and buckets tallies, Finish stores the final summary.
 func TestCollectingReporter(t *testing.T) {
 	ctx := context.Background()
-	g := Group{Name: "critical", Cluster: "prod-1", UseCase: "dt"}
+	g := Group{Name: "critical", Cluster: "prod-1", Items: []WorkItem{{UseCase: "dt", Inputs: map[string]string{"deployment": "a"}}}}
 	c := &CollectingReporter{}
 
 	if err := c.Start(ctx, g, GroupDest{}, 3); err != nil {

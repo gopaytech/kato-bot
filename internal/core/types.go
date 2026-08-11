@@ -83,8 +83,9 @@ type PickGroup struct {
 	Name  string
 }
 type RunGroup struct {
-	Reply Reply
-	Name  string
+	Reply   Reply
+	Name    string
+	Summary bool
 }
 
 func (ListClusters) isIntent() {}

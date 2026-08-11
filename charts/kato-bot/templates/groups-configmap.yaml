@@ -10,12 +10,18 @@ data:
     {{- range .Values.groups }}
       - name: {{ .name | quote }}
         cluster: {{ .cluster | quote }}
-        usecase: {{ .usecase | quote }}
         {{- if .concurrency }}
         concurrency: {{ .concurrency }}
         {{- end }}
-        targets:
-        {{- range .targets }}
-          - {{ toJson . }}
+        {{- if .summary }}
+        summary: true
+        {{- end }}
+        usecases:
+        {{- range .usecases }}
+          - usecase: {{ .usecase | quote }}
+            targets:
+            {{- range .targets }}
+              - {{ toJson . }}
+            {{- end }}
         {{- end }}
     {{- end }}

@@ -9,13 +9,49 @@ import (
 	"time"
 )
 
-// Group is a predefined batch: run UseCase across Targets in Cluster.
+// Group is a predefined batch: a set of WorkItems (each a UseCase paired with
+// its inputs) run against one Cluster.
 type Group struct {
 	Name        string
 	Cluster     string
-	UseCase     string
 	Concurrency int
-	Targets     []map[string]string
+	Items       []WorkItem
+	// Summary is the per-group default for whether a run also produces an LLM
+	// summary when the caller doesn't explicitly request one.
+	Summary bool
+}
+
+// WorkItem is one unit of group work: a UseCase paired with the inputs it runs on.
+type WorkItem struct {
+	UseCase string
+	Inputs  map[string]string
+}
+
+// WorkItems returns the flattened units of work.
+func (g Group) WorkItems() []WorkItem { return g.Items }
+
+// UseCaseCount is one UseCase and how many targets it has within a group.
+type UseCaseCount struct {
+	UseCase string
+	Targets int
+}
+
+// UseCaseCounts returns the distinct UseCases in insertion order with their
+// target counts — for "N targets across M usecases" summaries and the group list.
+func (g Group) UseCaseCounts() []UseCaseCount {
+	var order []string
+	counts := map[string]int{}
+	for _, it := range g.WorkItems() {
+		if _, ok := counts[it.UseCase]; !ok {
+			order = append(order, it.UseCase)
+		}
+		counts[it.UseCase]++
+	}
+	out := make([]UseCaseCount, 0, len(order))
+	for _, uc := range order {
+		out = append(out, UseCaseCount{UseCase: uc, Targets: counts[uc]})
+	}
+	return out
 }
 
 // GroupRegistry resolves groups by name, insertion-ordered, read-only after startup.
@@ -54,6 +90,7 @@ func (r *GroupRegistry) ForCluster(cluster string) []Group {
 // ServiceResult is one target's outcome within a group run.
 type ServiceResult struct {
 	Index    int
+	UseCase  string
 	Target   map[string]string
 	Run      string
 	Phase    string
@@ -189,7 +226,7 @@ func (gr *GroupRunner) Run(ctx context.Context, g Group, dest GroupDest, reporte
 	if !ok {
 		return fmt.Errorf("group %q: unknown cluster %q", g.Name, g.Cluster)
 	}
-	total := len(g.Targets)
+	total := len(g.WorkItems())
 	if err := reporter.Start(ctx, g, dest, total); err != nil {
 		return fmt.Errorf("group %q: start: %w", g.Name, err)
 	}
@@ -204,8 +241,8 @@ func (gr *GroupRunner) Run(ctx context.Context, g Group, dest GroupDest, reporte
 	}
 
 	type job struct {
-		idx    int
-		target map[string]string
+		idx  int
+		item WorkItem
 	}
 	jobs := make(chan job)
 	results := make(chan ServiceResult)
@@ -216,15 +253,15 @@ func (gr *GroupRunner) Run(ctx context.Context, g Group, dest GroupDest, reporte
 		go func() {
 			defer wg.Done()
 			for j := range jobs {
-				results <- gr.runOne(ctx, kc, g.UseCase, maxRetries, j.idx, j.target)
+				results <- gr.runOne(ctx, kc, maxRetries, j.idx, j.item)
 			}
 		}()
 	}
 	go func() {
 		defer close(jobs)
-		for i, t := range g.Targets {
+		for i, it := range g.WorkItems() {
 			select {
-			case jobs <- job{idx: i, target: t}:
+			case jobs <- job{idx: i, item: it}:
 			case <-ctx.Done():
 				return
 			}
@@ -250,8 +287,8 @@ func (gr *GroupRunner) Run(ctx context.Context, g Group, dest GroupDest, reporte
 	return reporter.Finish(ctx, summ)
 }
 
-func (gr *GroupRunner) runOne(ctx context.Context, kc KatoClient, usecase string, maxRetries, idx int, target map[string]string) ServiceResult {
-	sr := ServiceResult{Index: idx, Target: target}
+func (gr *GroupRunner) runOne(ctx context.Context, kc KatoClient, maxRetries, idx int, item WorkItem) ServiceResult {
+	sr := ServiceResult{Index: idx, UseCase: item.UseCase, Target: item.Inputs}
 	var lastErr error
 	for attempt := 0; attempt <= maxRetries; attempt++ {
 		if attempt > 0 {
@@ -262,7 +299,7 @@ func (gr *GroupRunner) runOne(ctx context.Context, kc KatoClient, usecase string
 				return sr
 			}
 		}
-		res, err := kc.Run(ctx, usecase, target)
+		res, err := kc.Run(ctx, item.UseCase, item.Inputs)
 		if err == nil {
 			sr.Run, sr.Phase, sr.Summary, sr.Warning = res.Run, res.Phase, res.Summary, res.Warning
 			sr.Healthy, sr.Headline = res.Healthy, res.Headline

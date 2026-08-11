@@ -32,7 +32,7 @@ func (f *fakeGroupSender) Patch(ctx context.Context, id, card string) error {
 func TestGroupReporterInteractiveFlow(t *testing.T) {
 	fs := &fakeGroupSender{}
 	rep := newGroupReporter(fs)
-	g := core.Group{Name: "critical", Cluster: "prod-1", UseCase: "dt"}
+	g := core.Group{Name: "critical", Cluster: "prod-1", Items: []core.WorkItem{{UseCase: "dt", Inputs: map[string]string{"deployment": "a"}}}}
 	ctx := context.Background()
 
 	if err := rep.Start(ctx, g, core.GroupDest{InReplyTo: "user-msg"}, 2); err != nil {
@@ -56,5 +56,16 @@ func TestGroupReporterInteractiveFlow(t *testing.T) {
 	}
 	if len(fs.patches) == 0 || fs.patches[len(fs.patches)-1] != "parent-1" {
 		t.Errorf("Finish should patch the parent card, patches=%v", fs.patches)
+	}
+}
+
+func TestGroupReporterAccumulatesResults(t *testing.T) {
+	fs := &fakeGroupSender{}
+	rep := newGroupReporter(fs)
+	g := core.Group{Name: "g"}
+	rep.Start(context.Background(), g, core.GroupDest{InReplyTo: "u"}, 1)
+	rep.ServiceDone(context.Background(), g, core.ServiceResult{UseCase: "dt", Target: map[string]string{"deployment": "a"}})
+	if len(rep.Results) != 1 || rep.Results[0].UseCase != "dt" {
+		t.Fatalf("reporter did not accumulate results: %+v", rep.Results)
 	}
 }

@@ -2,7 +2,7 @@
 
 Lark chat adapter for kato troubleshooting flows
 
-![Version: 0.3.0](https://img.shields.io/badge/Version-0.3.0-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 0.3.0](https://img.shields.io/badge/AppVersion-0.3.0-informational?style=flat-square) [![made with Go](https://img.shields.io/badge/made%20with-Go-brightgreen)](http://golang.org) [![Github main branch build](https://img.shields.io/github/actions/workflow/status/zufardhiyaulhaq/kato-bot/main.yml?branch=main)](https://github.com/zufardhiyaulhaq/kato-bot/actions/workflows/main.yml) [![GitHub issues](https://img.shields.io/github/issues/zufardhiyaulhaq/kato-bot)](https://github.com/zufardhiyaulhaq/kato-bot/issues) [![GitHub pull requests](https://img.shields.io/github/issues-pr/zufardhiyaulhaq/kato-bot)](https://github.com/zufardhiyaulhaq/kato-bot/pulls)
+![Version: 0.4.0](https://img.shields.io/badge/Version-0.4.0-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 0.4.0](https://img.shields.io/badge/AppVersion-0.4.0-informational?style=flat-square) [![made with Go](https://img.shields.io/badge/made%20with-Go-brightgreen)](http://golang.org) [![Github main branch build](https://img.shields.io/github/actions/workflow/status/zufardhiyaulhaq/kato-bot/main.yml?branch=main)](https://github.com/zufardhiyaulhaq/kato-bot/actions/workflows/main.yml) [![GitHub issues](https://img.shields.io/github/issues/zufardhiyaulhaq/kato-bot)](https://github.com/zufardhiyaulhaq/kato-bot/issues) [![GitHub pull requests](https://img.shields.io/github/issues-pr/zufardhiyaulhaq/kato-bot)](https://github.com/zufardhiyaulhaq/kato-bot/pulls)
 
 > A Lark chat adapter for [kato](https://github.com/zufardhiyaulhaq/kato). Invite the bot
 > to a Lark group, message it, pick a troubleshooting UseCase, fill in the inputs, and it
@@ -120,10 +120,17 @@ helm install my-kato-bot kato-bot/kato-bot --values values.yaml
 | api.enabled | bool | `true` | Enable the MCP + REST proxy listener on port 9090 (MCP at /mcp, cluster-prefixed kato REST proxy at /api/v1/clusters/...). No auth: anyone who can reach the port can run kato on every configured cluster — keep it ClusterIP / network-restricted. |
 | clusters | list | `[{"name":"default","url":"http://kato.kato.svc:8080"}]` | List of kato clusters the bot can target. Each entry needs a unique name and the in-cluster (or reachable) kato REST URL; label is the optional picker button text. Set insecureSkipVerify: true to skip TLS cert verification for an https URL (self-signed certs on a trusted network only; MITM-exposed). |
 | groupRunTimeout | string | `"1800s"` | Overall timeout for one group run (Go duration). |
-| groups | list | `[]` | Predefined groups: run one usecase across a static list of targets in one cluster, reported natively into Lark. cluster must match a configured cluster. |
+| groupSummary.apiKey | string | `""` | LLM API key, inline. When set (and apiKeySecretRef.name is empty), the chart renders its own dedicated Secret (<name>-groupsummary) holding the key. Ignored when apiKeySecretRef.name is set. |
+| groupSummary.apiKeySecretRef | object | `{"key":"","name":""}` | Reference to an existing Secret holding the LLM API key. Preferred — keeps the AI token independent of the Lark secret, and the key can be any name. When name is set, apiKey is ignored. |
+| groupSummary.baseUrl | string | `"https://api.openai.com/v1"` | OpenAI-compatible base URL. |
+| groupSummary.enabled | bool | `false` | Enable the optional LLM group-summary (kato-bot's only LLM use). |
+| groupSummary.maxTokens | int | `1024` | Max completion tokens. |
+| groupSummary.model | string | `"gpt-4o-mini"` | Model name. |
+| groupSummary.temperature | string | `"0.2"` | Sampling temperature. |
+| groups | list | `[]` | Predefined groups: several usecases (each with its own targets) in one cluster. cluster must match a configured cluster. |
 | image.pullPolicy | string | `"IfNotPresent"` | Image pull policy. |
 | image.repository | string | `"ghcr.io/zufardhiyaulhaq/kato-bot"` | Container image repository. |
-| image.tag | string | `"v0.3.0"` | Image tag. Defaults to the chart appVersion when empty. |
+| image.tag | string | `"v0.4.0"` | Image tag. Defaults to the chart appVersion when empty. |
 | katoRunTimeout | string | `"360s"` | Per-run client timeout for kato's synchronous POST /run (Go duration). |
 | lark.appId | string | `""` | Lark app id. Required unless lark.existingSecret is set. |
 | lark.appSecret | string | `""` | Lark app secret. Required unless lark.existingSecret is set. |

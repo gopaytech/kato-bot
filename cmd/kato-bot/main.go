@@ -17,6 +17,7 @@ import (
 	"github.com/zufardhiyaulhaq/kato-bot/internal/kato"
 	mcpserver "github.com/zufardhiyaulhaq/kato-bot/internal/mcp"
 	"github.com/zufardhiyaulhaq/kato-bot/internal/platform/lark"
+	"github.com/zufardhiyaulhaq/kato-bot/internal/summary"
 )
 
 func main() {
@@ -45,14 +46,31 @@ func main() {
 		if _, ok := registry.Get(gc.Cluster); !ok {
 			log.Fatalf("group %q references unknown cluster %q", gc.Name, gc.Cluster)
 		}
+		var items []core.WorkItem
+		for _, uc := range gc.UseCases {
+			for _, t := range uc.Targets {
+				items = append(items, core.WorkItem{UseCase: uc.UseCase, Inputs: t})
+			}
+		}
 		groupReg.Add(core.Group{
-			Name: gc.Name, Cluster: gc.Cluster, UseCase: gc.UseCase,
-			Concurrency: gc.Concurrency, Targets: gc.Targets,
+			Name: gc.Name, Cluster: gc.Cluster, Concurrency: gc.Concurrency, Items: items, Summary: gc.Summary,
 		})
 	}
 	groupRunner := &core.GroupRunner{Clusters: registry, MaxRetries: 3}
 
 	c := &core.Core{Clusters: registry, Groups: groupReg, R: renderer}
+
+	// Optional LLM group summarizer, shared by the interactive Lark adapter and
+	// the REST/MCP groupapi.Service. A nil summarizer is total: both callers
+	// degrade to a warning instead of failing.
+	var summarizer summary.Client
+	if cfg.GroupSummary.Enabled {
+		summarizer = &summary.OpenAIClient{
+			BaseURL: cfg.GroupSummary.BaseURL, Model: cfg.GroupSummary.Model,
+			APIKey: cfg.GroupSummary.APIKey, MaxTokens: cfg.GroupSummary.MaxTokens,
+			Temperature: cfg.GroupSummary.Temperature, Timeout: cfg.GroupSummary.Timeout,
+		}
+	}
 
 	adapter := &lark.Adapter{
 		AppID:         cfg.LarkAppID,
@@ -67,9 +85,14 @@ func main() {
 		Groups:       groupReg,
 		GroupRunner:  groupRunner,
 		GroupTimeout: cfg.GroupRunTimeout,
+
+		Summarizer:              summarizer,
+		SummaryMaxEvidenceBytes: cfg.GroupSummary.MaxEvidenceBytes,
 	}
 
 	gapi := groupapi.New(groupReg, groupRunner, cfg.GroupRunTimeout)
+	gapi.Summarizer = summarizer
+	gapi.SummaryMaxEvidenceBytes = cfg.GroupSummary.MaxEvidenceBytes
 
 	// Health server for k8s probes (no inbound app traffic; this is liveness only).
 	go func() {

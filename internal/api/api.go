@@ -21,7 +21,7 @@ const maxBodyBytes = 1 << 20
 // background and returns a runId immediately; GetRun polls it.
 type GroupAPI interface {
 	ListJSON() []byte
-	Submit(name string) (string, *gateway.Error)
+	Submit(name string, summary bool) (string, *gateway.Error)
 	GetRun(runID string) (*groupapi.RunView, *gateway.Error)
 }
 
@@ -35,7 +35,8 @@ func Register(mux *http.ServeMux, g *gateway.Gateway, groups GroupAPI) {
 	})
 	mux.HandleFunc("POST /api/v1/groups/{name}/run", func(w http.ResponseWriter, r *http.Request) {
 		name := r.PathValue("name")
-		runID, e := groups.Submit(name)
+		summary := r.URL.Query().Get("summary") == "true"
+		runID, e := groups.Submit(name, summary)
 		if e != nil {
 			writeGatewayErr(w, e)
 			return

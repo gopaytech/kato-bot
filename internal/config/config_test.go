@@ -196,11 +196,12 @@ func TestLoadGroups(t *testing.T) {
 groups:
   - name: critical-services
     cluster: prod-1
-    usecase: deployment-troubleshooting
     concurrency: 5
-    targets:
-      - { namespace: payments, deployment: payment-api }
-      - { namespace: cart, deployment: cart-api }
+    usecases:
+      - usecase: deployment-troubleshooting
+        targets:
+          - { namespace: payments, deployment: payment-api }
+          - { namespace: cart, deployment: cart-api }
 `), 0o600)
 
 	groups, err := loadGroups(path)
@@ -211,14 +212,17 @@ groups:
 		t.Fatalf("groups = %d, want 1", len(groups))
 	}
 	g := groups[0]
-	if g.Name != "critical-services" || g.Cluster != "prod-1" || g.UseCase != "deployment-troubleshooting" {
+	if g.Name != "critical-services" || g.Cluster != "prod-1" {
 		t.Errorf("bad group header: %+v", g)
 	}
 	if g.Concurrency != 5 {
 		t.Errorf("bad group knobs: %+v", g)
 	}
-	if len(g.Targets) != 2 || g.Targets[0]["deployment"] != "payment-api" {
-		t.Errorf("bad targets: %+v", g.Targets)
+	if len(g.UseCases) != 1 || g.UseCases[0].UseCase != "deployment-troubleshooting" {
+		t.Errorf("bad usecases: %+v", g.UseCases)
+	}
+	if len(g.UseCases[0].Targets) != 2 || g.UseCases[0].Targets[0]["deployment"] != "payment-api" {
+		t.Errorf("bad targets: %+v", g.UseCases[0].Targets)
 	}
 }
 
@@ -230,9 +234,66 @@ func TestLoadGroupsValidation(t *testing.T) {
 		return p
 	}
 	cases := map[string]string{
-		"dup name":      "groups:\n  - {name: a, cluster: c, usecase: u, targets: [{x: y}]}\n  - {name: a, cluster: c, usecase: u, targets: [{x: y}]}\n",
-		"empty usecase": "groups:\n  - {name: a, cluster: c, usecase: '', targets: [{x: y}]}\n",
-		"no targets":    "groups:\n  - {name: a, cluster: c, usecase: u, targets: []}\n",
+		"dup name":      "groups:\n  - {name: a, cluster: c, usecases: [{usecase: u, targets: [{x: y}]}]}\n  - {name: a, cluster: c, usecases: [{usecase: u, targets: [{x: y}]}]}\n",
+		"empty usecase": "groups:\n  - {name: a, cluster: c, usecases: [{usecase: '', targets: [{x: y}]}]}\n",
+		"no targets":    "groups:\n  - {name: a, cluster: c, usecases: [{usecase: u, targets: []}]}\n",
+	}
+	for name, body := range cases {
+		t.Run(name, func(t *testing.T) {
+			if _, err := loadGroups(write(body)); err == nil {
+				t.Errorf("expected validation error for %s", name)
+			}
+		})
+	}
+}
+
+func TestLoadGroupsMultiUseCase(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "groups.yaml")
+	os.WriteFile(path, []byte(`
+groups:
+  - name: critical
+    cluster: prod-1
+    concurrency: 5
+    usecases:
+      - usecase: deployment-troubleshooting
+        targets:
+          - { namespace: payments, deployment: payment-api }
+          - { namespace: cart, deployment: cart-api }
+      - usecase: http-connectivity-check
+        targets:
+          - { target: api, port: "443", scheme: https, path: /healthz }
+`), 0o600)
+	groups, err := loadGroups(path)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(groups) != 1 {
+		t.Fatalf("groups = %d, want 1", len(groups))
+	}
+	g := groups[0]
+	if g.Name != "critical" || g.Cluster != "prod-1" || g.Concurrency != 5 {
+		t.Errorf("bad header: %+v", g)
+	}
+	if len(g.UseCases) != 2 || g.UseCases[0].UseCase != "deployment-troubleshooting" ||
+		len(g.UseCases[0].Targets) != 2 || g.UseCases[1].UseCase != "http-connectivity-check" ||
+		g.UseCases[1].Targets[0]["target"] != "api" {
+		t.Errorf("bad usecases: %+v", g.UseCases)
+	}
+}
+
+func TestLoadGroupsValidationMulti(t *testing.T) {
+	dir := t.TempDir()
+	write := func(body string) string {
+		p := filepath.Join(dir, "g.yaml")
+		os.WriteFile(p, []byte(body), 0o600)
+		return p
+	}
+	cases := map[string]string{
+		"no usecases":   "groups:\n  - {name: a, cluster: c, usecases: []}\n",
+		"empty usecase": "groups:\n  - name: a\n    cluster: c\n    usecases:\n      - {usecase: '', targets: [{x: y}]}\n",
+		"no targets":    "groups:\n  - name: a\n    cluster: c\n    usecases:\n      - {usecase: u, targets: []}\n",
+		"dup name":      "groups:\n  - {name: a, cluster: c, usecases: [{usecase: u, targets: [{x: y}]}]}\n  - {name: a, cluster: c, usecases: [{usecase: u, targets: [{x: y}]}]}\n",
 	}
 	for name, body := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -266,10 +327,11 @@ func writeGroups(t *testing.T, body string) string {
 const oneGroup = `groups:
   - name: critical-services
     cluster: prod-1
-    usecase: deployment-troubleshooting
     concurrency: 5
-    targets:
-      - { namespace: payments, deployment: payment-api }
+    usecases:
+      - usecase: deployment-troubleshooting
+        targets:
+          - { namespace: payments, deployment: payment-api }
 `
 
 func TestLoadGroupsViaLoad(t *testing.T) {
@@ -323,4 +385,83 @@ func TestAPIAddr(t *testing.T) {
 			t.Errorf("APIAddr = %q, want :7777", cfg.APIAddr)
 		}
 	})
+}
+
+func TestLoadGroupSummary(t *testing.T) {
+	setRequiredEnv(t)
+	t.Setenv("GROUP_SUMMARY_ENABLED", "true")
+	t.Setenv("GROUP_SUMMARY_MODEL", "gpt-4o-mini")
+	t.Setenv("GROUP_SUMMARY_API_KEY", "sk-test")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if !cfg.GroupSummary.Enabled {
+		t.Error("GroupSummary.Enabled = false, want true")
+	}
+	if cfg.GroupSummary.Model != "gpt-4o-mini" {
+		t.Errorf("GroupSummary.Model = %q, want gpt-4o-mini", cfg.GroupSummary.Model)
+	}
+	if cfg.GroupSummary.APIKey != "sk-test" {
+		t.Errorf("GroupSummary.APIKey = %q, want sk-test", cfg.GroupSummary.APIKey)
+	}
+	if cfg.GroupSummary.BaseURL != "https://api.openai.com/v1" {
+		t.Errorf("GroupSummary.BaseURL = %q, want default", cfg.GroupSummary.BaseURL)
+	}
+	if cfg.GroupSummary.MaxTokens != 1024 {
+		t.Errorf("GroupSummary.MaxTokens = %d, want default 1024", cfg.GroupSummary.MaxTokens)
+	}
+	if cfg.GroupSummary.Temperature != 0.2 {
+		t.Errorf("GroupSummary.Temperature = %v, want default 0.2", cfg.GroupSummary.Temperature)
+	}
+	if cfg.GroupSummary.MaxEvidenceBytes != 16384 {
+		t.Errorf("GroupSummary.MaxEvidenceBytes = %d, want default 16384", cfg.GroupSummary.MaxEvidenceBytes)
+	}
+}
+
+func TestLoadGroupSummaryModelDefault(t *testing.T) {
+	setRequiredEnv(t)
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.GroupSummary.Model != "gpt-4o-mini" {
+		t.Errorf("GroupSummary.Model = %q, want default gpt-4o-mini", cfg.GroupSummary.Model)
+	}
+}
+
+func TestLoadBadGroupSummaryEnabled(t *testing.T) {
+	setRequiredEnv(t)
+	t.Setenv("GROUP_SUMMARY_ENABLED", "not-a-bool")
+	if _, err := Load(); err == nil {
+		t.Fatal("expected error on bad GROUP_SUMMARY_ENABLED")
+	}
+}
+
+const groupWithSummary = `groups:
+  - name: critical-services
+    cluster: prod-1
+    summary: true
+    usecases:
+      - usecase: deployment-troubleshooting
+        targets:
+          - { namespace: payments, deployment: payment-api }
+`
+
+func TestLoadGroupsSummaryDefault(t *testing.T) {
+	setRequiredEnv(t)
+	t.Setenv("KATO_GROUPS_FILE", writeGroups(t, groupWithSummary))
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(cfg.Groups) != 1 {
+		t.Fatalf("groups = %d, want 1", len(cfg.Groups))
+	}
+	if !cfg.Groups[0].Summary {
+		t.Error("Groups[0].Summary = false, want true")
+	}
 }

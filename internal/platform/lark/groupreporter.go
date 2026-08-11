@@ -15,6 +15,7 @@ type groupReporter struct {
 	total    int
 	done     int
 	summ     core.GroupSummary
+	Results  []core.ServiceResult
 }
 
 func newGroupReporter(s groupSender) *groupReporter { return &groupReporter{s: s} }
@@ -33,6 +34,7 @@ func (gr *groupReporter) Start(ctx context.Context, g core.Group, dest core.Grou
 
 func (gr *groupReporter) ServiceDone(ctx context.Context, g core.Group, r core.ServiceResult) error {
 	gr.done++
+	gr.Results = append(gr.Results, r)
 	switch r.Bucket() {
 	case "healthy":
 		gr.summ.Healthy++

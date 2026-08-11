@@ -57,9 +57,10 @@ func (f *fakeKato) RawGetRun(_ context.Context, name string) (json.RawMessage, e
 type fakeGroupAPI struct {
 	listJSON []byte
 
-	lastSubmit string
-	submitID   string
-	submitErr  *gateway.Error
+	lastSubmit        string
+	lastSubmitSummary bool
+	submitID          string
+	submitErr         *gateway.Error
 
 	lastGetRun string
 	view       *groupapi.RunView
@@ -67,8 +68,9 @@ type fakeGroupAPI struct {
 }
 
 func (f *fakeGroupAPI) ListJSON() []byte { return f.listJSON }
-func (f *fakeGroupAPI) Submit(name string) (string, *gateway.Error) {
+func (f *fakeGroupAPI) Submit(name string, summary bool) (string, *gateway.Error) {
 	f.lastSubmit = name
+	f.lastSubmitSummary = summary
 	return f.submitID, f.submitErr
 }
 func (f *fakeGroupAPI) GetRun(runID string) (*groupapi.RunView, *gateway.Error) {
@@ -293,6 +295,22 @@ func TestRunGroup_ReturnsRunID(t *testing.T) {
 	if groups.lastSubmit != "g1" {
 		t.Errorf("Submit called with %q, want g1", groups.lastSubmit)
 	}
+	if groups.lastSubmitSummary {
+		t.Errorf("Submit called with summary=true, want false (no Summary input)")
+	}
+}
+
+// run_group forwards its Summary input field to GroupAPI.Submit's second argument.
+func TestRunGroup_SummaryFlagForwarded(t *testing.T) {
+	groups := &fakeGroupAPI{submitID: "run-abc123"}
+	cs := sessionWithGroups(t, &fakeKato{}, groups)
+	res := call(t, cs, "run_group", map[string]any{"group": "g1", "summary": true})
+	if res.IsError {
+		t.Fatalf("IsError, content: %s", textOf(t, res))
+	}
+	if !groups.lastSubmitSummary {
+		t.Errorf("Submit called with summary=false, want true (Summary:true input)")
+	}
 }
 
 // run_group surfaces a *gateway.Error from groups.Submit as a tool error.
@@ -308,12 +326,12 @@ func TestRunGroup_Error(t *testing.T) {
 // get_group_run calls groups.GetRun and returns the RunView JSON on success.
 func TestGetGroupRun_ReturnsView(t *testing.T) {
 	view := &groupapi.RunView{
-		RunID: "run-1", Group: "g1", Cluster: "prod", UseCase: "dt",
+		RunID: "run-1", Group: "g1", Cluster: "prod",
 		Status: "done", StartedAt: "2026-08-07T00:00:00Z", CompletedAt: "2026-08-07T00:01:00Z",
 		Result: &groupapi.GroupResult{
-			Group: "g1", Cluster: "prod", UseCase: "dt",
+			Group: "g1", Cluster: "prod",
 			Tallies:  groupapi.Tallies{Healthy: 1, Total: 1},
-			Services: []groupapi.ServiceView{{Target: map[string]string{"deployment": "x"}}},
+			Services: []groupapi.ServiceView{{UseCase: "dt", Target: map[string]string{"deployment": "x"}}},
 		},
 	}
 	groups := &fakeGroupAPI{view: view}

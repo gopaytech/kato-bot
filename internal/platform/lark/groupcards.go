@@ -18,11 +18,20 @@ func buildGroupParentCard(g core.Group, s core.GroupSummary, done int, final boo
 	}
 	elements := []any{
 		markdown(fmt.Sprintf("%s **Group: %s** — %s", head, g.Name, state)),
-		markdown(fmt.Sprintf("%s · %s · %d targets", g.UseCase, g.Cluster, s.Total)),
+		markdown(fmt.Sprintf("%s · %d targets across %d usecases", g.Cluster, s.Total, len(g.UseCaseCounts()))),
 		markdown(fmt.Sprintf("Progress: **%d/%d**", done, s.Total)),
 		markdown(fmt.Sprintf("🟢 %d   🔴 %d   ⚠️ %d   ❔ %d", s.Healthy, s.Unhealthy, s.Errored, s.Unknown)),
 	}
 	return card2(g.Name, elements)
+}
+
+// buildGroupSummaryCard renders the final LLM-generated group health summary as a
+// threaded reply, posted after the group run finishes (interactive "Run + summary" path).
+func buildGroupSummaryCard(g core.Group, text string) string {
+	return card2(g.Name, []any{
+		markdown(fmt.Sprintf("📋 **Group summary: %s**", g.Name)),
+		markdown(text),
+	})
 }
 
 // targetLabel renders a service target as a short display label: "namespace/deployment"
@@ -47,6 +56,9 @@ func targetLabel(t map[string]string) string {
 // buildServiceReplyCard renders one service's outcome as a threaded reply.
 func buildServiceReplyCard(g core.Group, r core.ServiceResult) string {
 	label := targetLabel(r.Target)
+	if r.UseCase != "" {
+		label = r.UseCase + " · " + label
+	}
 	if r.Err != nil {
 		return card2(g.Name, []any{
 			markdown(fmt.Sprintf("⚠️ **%s** — check failed to run", label)),

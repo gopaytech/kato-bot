@@ -51,6 +51,31 @@ spec:
               value: {{ .Values.maxConcurrentRuns | quote }}
             - name: API_ADDR
               value: {{ .Values.api.enabled | ternary ":9090" "" | quote }}
+            - name: GROUP_SUMMARY_ENABLED
+              value: {{ .Values.groupSummary.enabled | quote }}
+            - name: GROUP_SUMMARY_BASE_URL
+              value: {{ .Values.groupSummary.baseUrl | quote }}
+            - name: GROUP_SUMMARY_MODEL
+              value: {{ .Values.groupSummary.model | quote }}
+            - name: GROUP_SUMMARY_MAX_TOKENS
+              value: {{ .Values.groupSummary.maxTokens | quote }}
+            - name: GROUP_SUMMARY_TEMPERATURE
+              value: {{ .Values.groupSummary.temperature | quote }}
+            {{- if .Values.groupSummary.apiKeySecretRef.name }}
+            # LLM API key from an existing Secret + key of your choosing.
+            - name: GROUP_SUMMARY_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.groupSummary.apiKeySecretRef.name }}
+                  key: {{ required "groupSummary.apiKeySecretRef.key is required when apiKeySecretRef.name is set" .Values.groupSummary.apiKeySecretRef.key }}
+            {{- else if .Values.groupSummary.apiKey }}
+            # LLM API key from the chart-managed dedicated Secret (groupsummary-secret.yaml).
+            - name: GROUP_SUMMARY_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "kato-bot.name" . }}-groupsummary
+                  key: GROUP_SUMMARY_API_KEY
+            {{- end }}
           volumeMounts:
             - name: clusters
               mountPath: /etc/kato-bot

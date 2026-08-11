@@ -21,14 +21,34 @@ type ClusterConfig struct {
 	InsecureSkipVerify bool
 }
 
-// GroupConfig is one predefined batch: a UseCase run across a static list of targets
-// in one cluster.
+// GroupConfig is one predefined batch: several UseCases, each run across its own
+// list of targets, in one cluster.
 type GroupConfig struct {
 	Name        string
 	Cluster     string
-	UseCase     string
 	Concurrency int
-	Targets     []map[string]string
+	UseCases    []GroupUseCase
+	// Summary is the per-group default for whether a group run also produces an
+	// LLM summary (used when the caller doesn't explicitly request one).
+	Summary bool
+}
+
+// GroupUseCase is one UseCase within a group and the targets it runs on.
+type GroupUseCase struct {
+	UseCase string
+	Targets []map[string]string
+}
+
+// GroupSummaryConfig configures kato-bot's optional LLM group summarizer.
+type GroupSummaryConfig struct {
+	Enabled          bool
+	BaseURL          string
+	Model            string
+	APIKey           string
+	MaxTokens        int
+	Temperature      float64
+	Timeout          time.Duration
+	MaxEvidenceBytes int
 }
 
 // Config is the resolved runtime configuration.
@@ -45,6 +65,8 @@ type Config struct {
 	LarkBaseURL       string
 	// APIAddr is the MCP + REST proxy listen address; empty disables the listener.
 	APIAddr string
+	// GroupSummary configures the optional LLM group summarizer.
+	GroupSummary GroupSummaryConfig
 }
 
 // Load reads config from env, applying defaults. LARK_APP_ID and LARK_APP_SECRET are
@@ -109,7 +131,62 @@ func Load() (Config, error) {
 	} else {
 		cfg.APIAddr = ":9090"
 	}
+
+	cfg.GroupSummary, err = loadGroupSummary()
+	if err != nil {
+		return Config{}, err
+	}
 	return cfg, nil
+}
+
+// loadGroupSummary reads the optional GROUP_SUMMARY_* env vars configuring the
+// LLM group summarizer. Everything is optional; GROUP_SUMMARY_ENABLED defaults
+// to false.
+func loadGroupSummary() (GroupSummaryConfig, error) {
+	gs := GroupSummaryConfig{
+		BaseURL:          envOr("GROUP_SUMMARY_BASE_URL", "https://api.openai.com/v1"),
+		Model:            envOr("GROUP_SUMMARY_MODEL", "gpt-4o-mini"),
+		APIKey:           os.Getenv("GROUP_SUMMARY_API_KEY"),
+		MaxTokens:        1024,
+		Temperature:      0.2,
+		MaxEvidenceBytes: 16384,
+	}
+	if v, ok := os.LookupEnv("GROUP_SUMMARY_ENABLED"); ok {
+		b, err := strconv.ParseBool(v)
+		if err != nil {
+			return GroupSummaryConfig{}, fmt.Errorf("GROUP_SUMMARY_ENABLED: %w", err)
+		}
+		gs.Enabled = b
+	}
+	if v := os.Getenv("GROUP_SUMMARY_MAX_TOKENS"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil {
+			return GroupSummaryConfig{}, fmt.Errorf("GROUP_SUMMARY_MAX_TOKENS: %w", err)
+		}
+		gs.MaxTokens = n
+	}
+	if v := os.Getenv("GROUP_SUMMARY_TEMPERATURE"); v != "" {
+		f, err := strconv.ParseFloat(v, 64)
+		if err != nil {
+			return GroupSummaryConfig{}, fmt.Errorf("GROUP_SUMMARY_TEMPERATURE: %w", err)
+		}
+		gs.Temperature = f
+	}
+	if v := os.Getenv("GROUP_SUMMARY_TIMEOUT"); v != "" {
+		d, err := time.ParseDuration(v)
+		if err != nil {
+			return GroupSummaryConfig{}, fmt.Errorf("GROUP_SUMMARY_TIMEOUT: %w", err)
+		}
+		gs.Timeout = d
+	}
+	if v := os.Getenv("GROUP_SUMMARY_MAX_EVIDENCE_BYTES"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil {
+			return GroupSummaryConfig{}, fmt.Errorf("GROUP_SUMMARY_MAX_EVIDENCE_BYTES: %w", err)
+		}
+		gs.MaxEvidenceBytes = n
+	}
+	return gs, nil
 }
 
 // clustersFile mirrors the YAML shape of the clusters config file.
@@ -164,11 +241,14 @@ func loadClusters(path string) ([]ClusterConfig, error) {
 // groupsFile mirrors the YAML shape of the groups config file.
 type groupsFile struct {
 	Groups []struct {
-		Name        string              `yaml:"name"`
-		Cluster     string              `yaml:"cluster"`
-		UseCase     string              `yaml:"usecase"`
-		Concurrency int                 `yaml:"concurrency"`
-		Targets     []map[string]string `yaml:"targets"`
+		Name        string `yaml:"name"`
+		Cluster     string `yaml:"cluster"`
+		Concurrency int    `yaml:"concurrency"`
+		UseCases    []struct {
+			UseCase string              `yaml:"usecase"`
+			Targets []map[string]string `yaml:"targets"`
+		} `yaml:"usecases"`
+		Summary bool `yaml:"summary"`
 	} `yaml:"groups"`
 }
 
@@ -176,7 +256,8 @@ const defaultGroupConcurrency = 5
 
 // loadGroups reads and validates the groups YAML file. A missing file is not an
 // error (groups are optional) — it yields zero groups. Each group needs a unique
-// non-empty name, a non-empty cluster and usecase, and at least one target.
+// non-empty name, a non-empty cluster, at least one usecase, and each usecase
+// needs a non-empty name and at least one target.
 func loadGroups(path string) ([]GroupConfig, error) {
 	raw, err := os.ReadFile(path)
 	if err != nil {
@@ -202,21 +283,26 @@ func loadGroups(path string) ([]GroupConfig, error) {
 		if strings.TrimSpace(g.Cluster) == "" {
 			return nil, fmt.Errorf("groups file %s: group %q has an empty cluster", path, name)
 		}
-		if strings.TrimSpace(g.UseCase) == "" {
-			return nil, fmt.Errorf("groups file %s: group %q has an empty usecase", path, name)
+		if len(g.UseCases) == 0 {
+			return nil, fmt.Errorf("groups file %s: group %q has no usecases", path, name)
 		}
-		if len(g.Targets) == 0 {
-			return nil, fmt.Errorf("groups file %s: group %q has no targets", path, name)
+		ucs := make([]GroupUseCase, 0, len(g.UseCases))
+		for j, uc := range g.UseCases {
+			un := strings.TrimSpace(uc.UseCase)
+			if un == "" {
+				return nil, fmt.Errorf("groups file %s: group %q usecase #%d has an empty usecase", path, name, j+1)
+			}
+			if len(uc.Targets) == 0 {
+				return nil, fmt.Errorf("groups file %s: group %q usecase %q has no targets", path, name, un)
+			}
+			ucs = append(ucs, GroupUseCase{UseCase: un, Targets: uc.Targets})
 		}
 		conc := g.Concurrency
 		if conc < 1 {
 			conc = defaultGroupConcurrency
 		}
 		seen[name] = true
-		out = append(out, GroupConfig{
-			Name: name, Cluster: strings.TrimSpace(g.Cluster), UseCase: strings.TrimSpace(g.UseCase),
-			Concurrency: conc, Targets: g.Targets,
-		})
+		out = append(out, GroupConfig{Name: name, Cluster: strings.TrimSpace(g.Cluster), Concurrency: conc, UseCases: ucs, Summary: g.Summary})
 	}
 	return out, nil
 }

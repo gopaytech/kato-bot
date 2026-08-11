@@ -2,7 +2,7 @@ image:
   # -- Container image repository.
   repository: ghcr.io/zufardhiyaulhaq/kato-bot
   # -- Image tag. Defaults to the chart appVersion when empty.
-  tag: "v0.3.0"
+  tag: "v0.4.0"
   # -- Image pull policy.
   pullPolicy: IfNotPresent
 
@@ -17,15 +17,19 @@ clusters:
     url: http://kato.kato.svc:8080
     # label: Default
     # insecureSkipVerify: false
-# -- Predefined groups: run one usecase across a static list of targets in one
-# cluster, reported natively into Lark. cluster must match a configured cluster.
+# -- Predefined groups: several usecases (each with its own targets) in one
+# cluster. cluster must match a configured cluster.
 groups: []
 #  - name: critical-services
 #    cluster: default
-#    usecase: deployment-troubleshooting
 #    concurrency: 5
-#    targets:
-#      - { namespace: payments, deployment: payment-api }
+#    usecases:
+#      - usecase: deployment-troubleshooting
+#        targets:
+#          - { namespace: payments, deployment: payment-api }
+#      - usecase: http-connectivity-check
+#        targets:
+#          - { target: api.internal, port: "443", scheme: https, path: /healthz }
 # -- Overall timeout for one group run (Go duration).
 groupRunTimeout: 1800s
 # -- Per-run client timeout for kato's synchronous POST /run (Go duration).
@@ -50,6 +54,28 @@ lark:
   appId: ""
   # -- Lark app secret. Required unless lark.existingSecret is set.
   appSecret: ""
+
+groupSummary:
+  # -- Enable the optional LLM group-summary (kato-bot's only LLM use).
+  enabled: false
+  # -- OpenAI-compatible base URL.
+  baseUrl: https://api.openai.com/v1
+  # -- Model name.
+  model: gpt-4o-mini
+  # -- Max completion tokens.
+  maxTokens: 1024
+  # -- Sampling temperature.
+  temperature: "0.2"
+  # -- Reference to an existing Secret holding the LLM API key. Preferred — keeps
+  # the AI token independent of the Lark secret, and the key can be any name.
+  # When name is set, apiKey is ignored.
+  apiKeySecretRef:
+    name: ""    # existing Secret name (in the release namespace)
+    key: ""     # the key within that Secret whose value is the API token (required when name is set)
+  # -- LLM API key, inline. When set (and apiKeySecretRef.name is empty), the chart
+  # renders its own dedicated Secret (<name>-groupsummary) holding the key.
+  # Ignored when apiKeySecretRef.name is set.
+  apiKey: ""
 
 # -- Pod resource requests and limits.
 resources: {}

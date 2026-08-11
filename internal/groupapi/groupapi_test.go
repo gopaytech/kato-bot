@@ -2,6 +2,7 @@ package groupapi
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"testing"
@@ -43,9 +44,28 @@ func (k ctxCapturingKato) Run(ctx context.Context, name string, inputs map[strin
 func newTestService(t *testing.T) *Service {
 	t.Helper()
 	groups := core.NewGroupRegistry()
-	groups.Add(core.Group{Name: "ok", Cluster: "prod", UseCase: "dt", Targets: []map[string]string{
-		{"deployment": "a"},
-		{"deployment": "b"},
+	groups.Add(core.Group{Name: "ok", Cluster: "prod", Items: []core.WorkItem{
+		{UseCase: "dt", Inputs: map[string]string{"deployment": "a"}},
+		{UseCase: "dt", Inputs: map[string]string{"deployment": "b"}},
+	}})
+
+	registry := core.NewRegistry()
+	registry.Add(core.Cluster{Name: "prod"}, fakeKato{})
+
+	runner := &core.GroupRunner{Clusters: registry, MaxRetries: 0}
+
+	return New(groups, runner, time.Minute)
+}
+
+// newTestServiceWithSummaryDefault is newTestService's twin, except its group
+// ("ok-summary-default") has core.Group.Summary set — the per-group default
+// that Submit must honor even when the caller passes doSummary=false.
+func newTestServiceWithSummaryDefault(t *testing.T) *Service {
+	t.Helper()
+	groups := core.NewGroupRegistry()
+	groups.Add(core.Group{Name: "ok-summary-default", Cluster: "prod", Summary: true, Items: []core.WorkItem{
+		{UseCase: "dt", Inputs: map[string]string{"deployment": "a"}},
+		{UseCase: "dt", Inputs: map[string]string{"deployment": "b"}},
 	}})
 
 	registry := core.NewRegistry()
@@ -79,7 +99,7 @@ func waitForStatus(t *testing.T, svc *Service, runID, want string, timeout time.
 
 func TestServiceSubmitUnknownGroup(t *testing.T) {
 	svc := newTestService(t)
-	runID, e := svc.Submit("nope")
+	runID, e := svc.Submit("nope", false)
 	if runID != "" || e == nil || e.Status != http.StatusNotFound {
 		t.Fatalf("Submit(nope) = %q, %v, want empty runId and 404", runID, e)
 	}
@@ -101,16 +121,16 @@ func TestServiceSubmitIsAsyncThenDone(t *testing.T) {
 	started := make(chan struct{}, 1)
 	release := make(chan struct{})
 	groups := core.NewGroupRegistry()
-	groups.Add(core.Group{Name: "ok", Cluster: "prod", UseCase: "dt", Targets: []map[string]string{
-		{"deployment": "a"},
-		{"deployment": "b"},
+	groups.Add(core.Group{Name: "ok", Cluster: "prod", Items: []core.WorkItem{
+		{UseCase: "dt", Inputs: map[string]string{"deployment": "a"}},
+		{UseCase: "dt", Inputs: map[string]string{"deployment": "b"}},
 	}})
 	registry := core.NewRegistry()
 	registry.Add(core.Cluster{Name: "prod"}, blockingKato{started: started, release: release})
 	runner := &core.GroupRunner{Clusters: registry, MaxRetries: 0}
 	svc := New(groups, runner, time.Minute)
 
-	runID, e := svc.Submit("ok")
+	runID, e := svc.Submit("ok", false)
 	if e != nil {
 		t.Fatalf("Submit(ok) = %v, want nil error", e)
 	}
@@ -146,7 +166,7 @@ func TestServiceSubmitIsAsyncThenDone(t *testing.T) {
 	if done.Result == nil {
 		t.Fatal("done view has nil Result")
 	}
-	if done.Result.Group != "ok" || done.Result.Cluster != "prod" || done.Result.UseCase != "dt" {
+	if done.Result.Group != "ok" || done.Result.Cluster != "prod" {
 		t.Errorf("result header = %+v", done.Result)
 	}
 	if done.Result.Tallies.Total != 2 || done.Result.Tallies.Healthy != 0 {
@@ -169,7 +189,7 @@ func TestServiceSubmitIsAsyncThenDone(t *testing.T) {
 // per-service views for a fake KatoClient.
 func TestServiceSubmitReturnsResult(t *testing.T) {
 	svc := newTestService(t)
-	runID, e := svc.Submit("ok")
+	runID, e := svc.Submit("ok", false)
 	if e != nil {
 		t.Fatalf("Submit(ok) = %v, want nil error", e)
 	}
@@ -178,7 +198,7 @@ func TestServiceSubmitReturnsResult(t *testing.T) {
 	if res.Result == nil {
 		t.Fatal("done view has nil Result")
 	}
-	if res.Group != "ok" || res.Cluster != "prod" || res.UseCase != "dt" {
+	if res.Group != "ok" || res.Cluster != "prod" {
 		t.Errorf("view header = %+v", res)
 	}
 	if res.Result.Tallies.Total != 2 || res.Result.Tallies.Healthy != 2 || res.Result.Tallies.Unhealthy != 0 ||
@@ -220,7 +240,7 @@ func (warningKato) Run(ctx context.Context, name string, inputs map[string]strin
 // polled JSON result's ServiceView.Warning, not dropped.
 func TestServiceSubmitCarriesWarning(t *testing.T) {
 	groups := core.NewGroupRegistry()
-	groups.Add(core.Group{Name: "ok", Cluster: "prod", UseCase: "dt", Targets: []map[string]string{{"deployment": "x"}}})
+	groups.Add(core.Group{Name: "ok", Cluster: "prod", Items: []core.WorkItem{{UseCase: "dt", Inputs: map[string]string{"deployment": "x"}}}})
 
 	registry := core.NewRegistry()
 	registry.Add(core.Cluster{Name: "prod"}, warningKato{})
@@ -228,7 +248,7 @@ func TestServiceSubmitCarriesWarning(t *testing.T) {
 	runner := &core.GroupRunner{Clusters: registry, MaxRetries: 0}
 	svc := New(groups, runner, time.Minute)
 
-	runID, e := svc.Submit("ok")
+	runID, e := svc.Submit("ok", false)
 	if e != nil {
 		t.Fatalf("Submit(ok) = %v, want nil error", e)
 	}
@@ -253,7 +273,7 @@ func (erroringKato) Run(ctx context.Context, name string, inputs map[string]stri
 
 func TestServiceSubmitErroredService(t *testing.T) {
 	groups := core.NewGroupRegistry()
-	groups.Add(core.Group{Name: "ok", Cluster: "prod", UseCase: "dt", Targets: []map[string]string{{"deployment": "x"}}})
+	groups.Add(core.Group{Name: "ok", Cluster: "prod", Items: []core.WorkItem{{UseCase: "dt", Inputs: map[string]string{"deployment": "x"}}}})
 
 	registry := core.NewRegistry()
 	registry.Add(core.Cluster{Name: "prod"}, erroringKato{})
@@ -261,7 +281,7 @@ func TestServiceSubmitErroredService(t *testing.T) {
 	runner := &core.GroupRunner{Clusters: registry, MaxRetries: 0}
 	svc := New(groups, runner, time.Minute)
 
-	runID, e := svc.Submit("ok")
+	runID, e := svc.Submit("ok", false)
 	if e != nil {
 		t.Fatalf("Submit(ok) = %v, want nil error", e)
 	}
@@ -282,13 +302,13 @@ func TestServiceSubmitRunLevelFailure(t *testing.T) {
 	groups := core.NewGroupRegistry()
 	// "prod2" is never registered in registry below, so GroupRunner.Run's
 	// gr.Clusters.Get(g.Cluster) fails before any per-service work happens.
-	groups.Add(core.Group{Name: "bad-cluster", Cluster: "prod2", UseCase: "dt", Targets: []map[string]string{{"deployment": "x"}}})
+	groups.Add(core.Group{Name: "bad-cluster", Cluster: "prod2", Items: []core.WorkItem{{UseCase: "dt", Inputs: map[string]string{"deployment": "x"}}}})
 
 	registry := core.NewRegistry()
 	runner := &core.GroupRunner{Clusters: registry, MaxRetries: 0}
 	svc := New(groups, runner, time.Minute)
 
-	runID, e := svc.Submit("bad-cluster")
+	runID, e := svc.Submit("bad-cluster", false)
 	if e != nil {
 		t.Fatalf("Submit(bad-cluster) = %v, want nil error", e)
 	}
@@ -331,7 +351,7 @@ func (k blockingKato) Run(ctx context.Context, name string, inputs map[string]st
 // overlapping fan-out.
 func TestServiceSubmitConflictWhileInFlight(t *testing.T) {
 	groups := core.NewGroupRegistry()
-	groups.Add(core.Group{Name: "ok", Cluster: "prod", UseCase: "dt", Targets: []map[string]string{{"deployment": "x"}}})
+	groups.Add(core.Group{Name: "ok", Cluster: "prod", Items: []core.WorkItem{{UseCase: "dt", Inputs: map[string]string{"deployment": "x"}}}})
 
 	fk := blockingKato{started: make(chan struct{}, 1), release: make(chan struct{})}
 	registry := core.NewRegistry()
@@ -340,7 +360,7 @@ func TestServiceSubmitConflictWhileInFlight(t *testing.T) {
 	runner := &core.GroupRunner{Clusters: registry, MaxRetries: 0}
 	svc := New(groups, runner, time.Minute)
 
-	firstID, e := svc.Submit("ok")
+	firstID, e := svc.Submit("ok", false)
 	if e != nil {
 		t.Fatalf("first Submit(ok) = %v, want nil", e)
 	}
@@ -353,7 +373,7 @@ func TestServiceSubmitConflictWhileInFlight(t *testing.T) {
 		t.Fatal("first run never reached KatoClient.Run")
 	}
 
-	if runID, e := svc.Submit("ok"); e == nil || e.Status != http.StatusConflict {
+	if runID, e := svc.Submit("ok", false); e == nil || e.Status != http.StatusConflict {
 		t.Fatalf("second Submit(ok) while in flight = %q, %v, want empty runId and 409", runID, e)
 	}
 
@@ -366,7 +386,7 @@ func TestServiceSubmitConflictWhileInFlight(t *testing.T) {
 // GroupRunner) must carry a deadline when Timeout > 0.
 func TestServiceSubmitAppliesTimeout(t *testing.T) {
 	groups := core.NewGroupRegistry()
-	groups.Add(core.Group{Name: "ok", Cluster: "prod", UseCase: "dt", Targets: []map[string]string{{"deployment": "x"}}})
+	groups.Add(core.Group{Name: "ok", Cluster: "prod", Items: []core.WorkItem{{UseCase: "dt", Inputs: map[string]string{"deployment": "x"}}}})
 
 	ctxCh := make(chan context.Context, 1)
 	registry := core.NewRegistry()
@@ -375,7 +395,7 @@ func TestServiceSubmitAppliesTimeout(t *testing.T) {
 	runner := &core.GroupRunner{Clusters: registry, MaxRetries: 0}
 	svc := New(groups, runner, 50*time.Millisecond)
 
-	if _, e := svc.Submit("ok"); e != nil {
+	if _, e := svc.Submit("ok", false); e != nil {
 		t.Fatalf("Submit(ok) = %v, want nil", e)
 	}
 
@@ -402,7 +422,7 @@ func TestServiceSubmitAppliesTimeout(t *testing.T) {
 // unbounded run.
 func TestServiceSubmitZeroTimeoutFallsBackTo30Min(t *testing.T) {
 	groups := core.NewGroupRegistry()
-	groups.Add(core.Group{Name: "ok", Cluster: "prod", UseCase: "dt", Targets: []map[string]string{{"deployment": "x"}}})
+	groups.Add(core.Group{Name: "ok", Cluster: "prod", Items: []core.WorkItem{{UseCase: "dt", Inputs: map[string]string{"deployment": "x"}}}})
 
 	ctxCh := make(chan context.Context, 1)
 	registry := core.NewRegistry()
@@ -411,7 +431,7 @@ func TestServiceSubmitZeroTimeoutFallsBackTo30Min(t *testing.T) {
 	runner := &core.GroupRunner{Clusters: registry, MaxRetries: 0}
 	svc := New(groups, runner, 0)
 
-	if _, e := svc.Submit("ok"); e != nil {
+	if _, e := svc.Submit("ok", false); e != nil {
 		t.Fatalf("Submit(ok) = %v, want nil", e)
 	}
 
@@ -477,5 +497,128 @@ func TestEvictionDropsExpiredTerminalRecords(t *testing.T) {
 	}
 	if _, ok := svc.runs["running"]; !ok {
 		t.Error("evictLocked dropped the running record")
+	}
+}
+
+func TestBuildGroupResultCarriesUseCase(t *testing.T) {
+	g := core.Group{Name: "g", Cluster: "prod", Items: []core.WorkItem{
+		{UseCase: "dt", Inputs: map[string]string{"deployment": "a"}},
+	}}
+	tru := true
+	rep := &core.CollectingReporter{
+		Results: []core.ServiceResult{{UseCase: "dt", Target: map[string]string{"deployment": "a"}, Healthy: &tru}},
+		Summary: core.GroupSummary{Group: g, Total: 1, Healthy: 1},
+	}
+	res := buildGroupResult(g, rep)
+	if len(res.Services) != 1 || res.Services[0].UseCase != "dt" {
+		t.Fatalf("service view usecase = %+v", res.Services)
+	}
+}
+
+// stubSummarizer is a minimal summary.Client stand-in for exercising Submit's
+// summary path without a real LLM.
+type stubSummarizer struct {
+	out string
+	err error
+}
+
+func (s stubSummarizer) Complete(ctx context.Context, system, user string) (string, error) {
+	return s.out, s.err
+}
+
+// TestSubmitWithSummaryPopulatesResult proves that Submit(name, true) with a
+// configured Summarizer attaches the summarizer's output to the result once
+// the run is done, with no warning.
+func TestSubmitWithSummaryPopulatesResult(t *testing.T) {
+	svc := newTestService(t)
+	svc.Summarizer = stubSummarizer{out: "1 healthy, all good."}
+	runID, e := svc.Submit("ok", true)
+	if e != nil {
+		t.Fatalf("submit: %v", e)
+	}
+	view := waitForStatus(t, svc, runID, string(statusDone), time.Second)
+	if view.Result == nil || view.Result.Summary != "1 healthy, all good." {
+		t.Fatalf("summary not in result: %+v", view.Result)
+	}
+	if view.Result.SummaryWarning != "" {
+		t.Errorf("unexpected warning: %q", view.Result.SummaryWarning)
+	}
+}
+
+// TestSubmitWithoutSummarySkips proves Submit(name, false) never calls the
+// Summarizer and leaves Summary/SummaryWarning empty.
+func TestSubmitWithoutSummarySkips(t *testing.T) {
+	svc := newTestService(t)
+	svc.Summarizer = stubSummarizer{out: "should not be called"}
+	runID, e := svc.Submit("ok", false)
+	if e != nil {
+		t.Fatalf("submit: %v", e)
+	}
+	view := waitForStatus(t, svc, runID, string(statusDone), time.Second)
+	if view.Result.Summary != "" {
+		t.Errorf("summary should be empty when not requested: %q", view.Result.Summary)
+	}
+	if view.Result.SummaryWarning != "" {
+		t.Errorf("unexpected warning when not requested: %q", view.Result.SummaryWarning)
+	}
+}
+
+// TestSubmitHonorsGroupSummaryDefault proves that a group's per-group
+// Summary default (core.Group.Summary) triggers the summarizer even when the
+// caller submits with doSummary=false — REST/MCP must match the Lark gate
+// (v.Summary || g.Summary), not silently ignore the group default.
+func TestSubmitHonorsGroupSummaryDefault(t *testing.T) {
+	svc := newTestServiceWithSummaryDefault(t)
+	svc.Summarizer = stubSummarizer{out: "defaulted on via group config."}
+	runID, e := svc.Submit("ok-summary-default", false)
+	if e != nil {
+		t.Fatalf("submit: %v", e)
+	}
+	view := waitForStatus(t, svc, runID, string(statusDone), time.Second)
+	if view.Result == nil || view.Result.Summary != "defaulted on via group config." {
+		t.Fatalf("group Summary default should have triggered the summarizer, got %+v", view.Result)
+	}
+	if view.Result.SummaryWarning != "" {
+		t.Errorf("unexpected warning: %q", view.Result.SummaryWarning)
+	}
+}
+
+// TestSubmitSummaryRequestedButNilSummarizerWarns proves that requesting a
+// summary with no Summarizer configured yields an empty Summary and a
+// non-empty SummaryWarning, never an error or panic.
+func TestSubmitSummaryRequestedButNilSummarizerWarns(t *testing.T) {
+	svc := newTestService(t) // Summarizer left nil
+	runID, e := svc.Submit("ok", true)
+	if e != nil {
+		t.Fatalf("submit: %v", e)
+	}
+	view := waitForStatus(t, svc, runID, string(statusDone), time.Second)
+	if view.Result.Summary != "" || view.Result.SummaryWarning == "" {
+		t.Errorf("nil summarizer + requested -> empty summary + warning, got %+v", view.Result)
+	}
+}
+
+func TestListJSONUseCasesBreakdown(t *testing.T) {
+	reg := core.NewGroupRegistry()
+	reg.Add(core.Group{Name: "g", Cluster: "prod", Items: []core.WorkItem{
+		{UseCase: "dt", Inputs: map[string]string{"deployment": "a"}},
+		{UseCase: "http", Inputs: map[string]string{"target": "x"}},
+		{UseCase: "dt", Inputs: map[string]string{"deployment": "b"}},
+	}})
+	svc := New(reg, nil, time.Minute)
+	var out struct {
+		Groups []struct {
+			Name         string `json:"name"`
+			TotalTargets int    `json:"totalTargets"`
+			UseCases     []struct {
+				UseCase string `json:"usecase"`
+				Targets int    `json:"targets"`
+			} `json:"usecases"`
+		} `json:"groups"`
+	}
+	json.Unmarshal(svc.ListJSON(), &out)
+	if len(out.Groups) != 1 || out.Groups[0].TotalTargets != 3 || len(out.Groups[0].UseCases) != 2 ||
+		out.Groups[0].UseCases[0].UseCase != "dt" || out.Groups[0].UseCases[0].Targets != 2 {
+		t.Fatalf("list view = %+v", out.Groups)
 	}
 }
