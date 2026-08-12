@@ -2,7 +2,7 @@
 
 Lark chat adapter for kato troubleshooting flows
 
-![Version: 0.4.0](https://img.shields.io/badge/Version-0.4.0-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 0.4.0](https://img.shields.io/badge/AppVersion-0.4.0-informational?style=flat-square) [![made with Go](https://img.shields.io/badge/made%20with-Go-brightgreen)](http://golang.org) [![Github main branch build](https://img.shields.io/github/actions/workflow/status/zufardhiyaulhaq/kato-bot/main.yml?branch=main)](https://github.com/zufardhiyaulhaq/kato-bot/actions/workflows/main.yml) [![GitHub issues](https://img.shields.io/github/issues/zufardhiyaulhaq/kato-bot)](https://github.com/zufardhiyaulhaq/kato-bot/issues) [![GitHub pull requests](https://img.shields.io/github/issues-pr/zufardhiyaulhaq/kato-bot)](https://github.com/zufardhiyaulhaq/kato-bot/pulls)
+![Version: 0.4.1](https://img.shields.io/badge/Version-0.4.1-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 0.4.1](https://img.shields.io/badge/AppVersion-0.4.1-informational?style=flat-square) [![made with Go](https://img.shields.io/badge/made%20with-Go-brightgreen)](http://golang.org) [![Github main branch build](https://img.shields.io/github/actions/workflow/status/zufardhiyaulhaq/kato-bot/main.yml?branch=main)](https://github.com/zufardhiyaulhaq/kato-bot/actions/workflows/main.yml) [![GitHub issues](https://img.shields.io/github/issues/zufardhiyaulhaq/kato-bot)](https://github.com/zufardhiyaulhaq/kato-bot/issues) [![GitHub pull requests](https://img.shields.io/github/issues-pr/zufardhiyaulhaq/kato-bot)](https://github.com/zufardhiyaulhaq/kato-bot/pulls)
 
 > A Lark chat adapter for [kato](https://github.com/zufardhiyaulhaq/kato). Invite the bot
 > to a Lark group, message it, pick a troubleshooting UseCase, fill in the inputs, and it
@@ -130,7 +130,7 @@ helm install my-kato-bot kato-bot/kato-bot --values values.yaml
 | groups | list | `[]` | Predefined groups: several usecases (each with its own targets) in one cluster. cluster must match a configured cluster. |
 | image.pullPolicy | string | `"IfNotPresent"` | Image pull policy. |
 | image.repository | string | `"ghcr.io/zufardhiyaulhaq/kato-bot"` | Container image repository. |
-| image.tag | string | `"v0.4.0"` | Image tag. Defaults to the chart appVersion when empty. |
+| image.tag | string | `"v0.4.1"` | Image tag. Defaults to the chart appVersion when empty. |
 | katoRunTimeout | string | `"360s"` | Per-run client timeout for kato's synchronous POST /run (Go duration). |
 | lark.appId | string | `""` | Lark app id. Required unless lark.existingSecret is set. |
 | lark.appSecret | string | `""` | Lark app secret. Required unless lark.existingSecret is set. |

@@ -46,21 +46,56 @@ func button2(text string, value map[string]any) map[string]any {
 	}
 }
 
-// buildClusterPickerCard lists each configured cluster with a Select button. The button
-// value carries the cluster name so the follow-up pick_cluster callback knows which kato
-// backend to target.
+// buildClusterPickerCard renders every configured cluster as one option in a single
+// select_static dropdown inside a 2.0 form, plus a Select submit button. This keeps the
+// card to two components regardless of cluster count (one interactive button per cluster
+// overflows Lark's card size once there are a few dozen clusters). The Lark client filters
+// the option list as the user types (built-in typeahead). The chosen cluster is delivered
+// in the callback's form_value under the select's name ("cluster"), not the button value.
 func buildClusterPickerCard(clusters []core.Cluster) string {
-	elements := []any{markdown("☸️ **kato** — pick a cluster")}
+	options := make([]any, 0, len(clusters))
 	for _, cl := range clusters {
 		label := cl.Label
 		if label == "" {
 			label = cl.Name
 		}
-		elements = append(elements, map[string]any{"tag": "hr"})
-		elements = append(elements, markdown("**"+label+"**"))
-		elements = append(elements, button2("Select ▸", map[string]any{"action": "pick_cluster", "cluster": cl.Name}))
+		options = append(options, map[string]any{
+			"text":  map[string]any{"tag": "plain_text", "content": label},
+			"value": cl.Name,
+		})
 	}
-	return card2("kato", elements)
+	sel := map[string]any{
+		"tag":         "select_static",
+		"name":        "cluster",
+		"placeholder": map[string]any{"tag": "plain_text", "content": "Select a cluster…"},
+		"options":     options,
+	}
+	// Submit button, wrapped in a column_set to match Lark's documented form example
+	// (the same wrapping buildFormCard uses so the submit reliably fires its callback).
+	submitBtn := map[string]any{
+		"tag":              "button",
+		"text":             map[string]any{"tag": "plain_text", "content": "Select ▸"},
+		"type":             "primary",
+		"form_action_type": "submit",
+		"name":             "submit",
+		"behaviors":        []any{map[string]any{"type": "callback", "value": map[string]any{"action": "pick_cluster"}}},
+	}
+	submitCol := map[string]any{
+		"tag": "column_set",
+		"columns": []any{
+			map[string]any{"tag": "column", "width": "auto", "elements": []any{submitBtn}},
+		},
+	}
+	form := map[string]any{
+		"tag":  "form",
+		"name": "kato_cluster_form",
+		"elements": []any{
+			markdown("☸️ **kato** — pick a cluster"),
+			sel,
+			submitCol,
+		},
+	}
+	return card2("kato", []any{form})
 }
 
 // buildPickerCard lists each UseCase with a Select button (ready ones) or a disabled note,

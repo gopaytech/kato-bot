@@ -118,3 +118,42 @@ func TestDecodeRunGroupWithSummary(t *testing.T) {
 		t.Fatalf("intent = %#v, want RunGroup{critical, Summary:true}", in)
 	}
 }
+
+func TestDecodeCardActionPickClusterFromForm(t *testing.T) {
+	// New card shape: the select_static delivers the choice in form_value,
+	// and the submit button's value carries only the action.
+	raw := []byte(`{
+		"action": {"value": {"action":"pick_cluster"}, "form_value": {"cluster":"prod"}},
+		"context": {"open_chat_id":"oc_1","open_message_id":"om_card"}
+	}`)
+	in, err := decodeCardAction(raw)
+	if err != nil {
+		t.Fatalf("err = %v", err)
+	}
+	pc, ok := in.(core.PickCluster)
+	if !ok {
+		t.Fatalf("got %T", in)
+	}
+	if pc.Reply.Cluster != "prod" || pc.Reply.MessageID != "om_card" {
+		t.Fatalf("pickcluster = %+v", pc)
+	}
+}
+
+func TestDecodeCardActionPickClusterEmpty(t *testing.T) {
+	// Submit with nothing selected: no cluster in value or form_value.
+	raw := []byte(`{
+		"action": {"value": {"action":"pick_cluster"}, "form_value": {}},
+		"context": {"open_chat_id":"oc_1","open_message_id":"om_card"}
+	}`)
+	in, err := decodeCardAction(raw)
+	if err != nil {
+		t.Fatalf("err = %v", err)
+	}
+	pc, ok := in.(core.PickCluster)
+	if !ok {
+		t.Fatalf("got %T", in)
+	}
+	if pc.Reply.Cluster != "" {
+		t.Fatalf("want empty cluster, got %q", pc.Reply.Cluster)
+	}
+}

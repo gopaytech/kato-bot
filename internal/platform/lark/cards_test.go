@@ -26,14 +26,92 @@ func TestBuildClusterPickerCard(t *testing.T) {
 	if m["schema"] != "2.0" {
 		t.Errorf("expected schema 2.0, got %v", m["schema"])
 	}
+	// One select_static named "cluster", not one button per cluster.
+	if !strings.Contains(card, `"tag":"select_static"`) {
+		t.Error("expected a select_static dropdown")
+	}
+	if !strings.Contains(card, `"name":"cluster"`) {
+		t.Error("select_static must be named cluster (its form_value key)")
+	}
+	// Labels/names appear as option text/value.
 	if !strings.Contains(card, "Production") {
 		t.Error("missing cluster label")
 	}
-	if !strings.Contains(card, "staging") {
-		t.Error("missing cluster name fallback")
+	if !strings.Contains(card, `"value":"prod"`) || !strings.Contains(card, `"value":"staging"`) {
+		t.Error("missing cluster option values (name fallback for staging)")
 	}
-	if !strings.Contains(card, `"action":"pick_cluster"`) || !strings.Contains(card, `"cluster":"prod"`) {
-		t.Error("missing pick_cluster action value")
+	// Submit button carries ONLY the action; cluster is no longer in the value.
+	if !strings.Contains(card, `"action":"pick_cluster"`) {
+		t.Error("missing pick_cluster submit action")
+	}
+	if !strings.Contains(card, `"form_action_type":"submit"`) {
+		t.Error("Select button must be a form submit")
+	}
+}
+
+// clusterOptions digs body.elements[0](form).elements to find the select_static
+// and returns its options, asserting the card structure along the way.
+func clusterOptions(t *testing.T, card string) []any {
+	t.Helper()
+	m := asMap(t, card)
+	body, ok := m["body"].(map[string]any)
+	if !ok {
+		t.Fatal("no body")
+	}
+	elems, ok := body["elements"].([]any)
+	if !ok || len(elems) == 0 {
+		t.Fatal("no body.elements")
+	}
+	form, ok := elems[0].(map[string]any)
+	if !ok || form["tag"] != "form" {
+		t.Fatalf("first element is not a form: %v", elems[0])
+	}
+	felems, ok := form["elements"].([]any)
+	if !ok {
+		t.Fatal("form has no elements")
+	}
+	for _, e := range felems {
+		em, ok := e.(map[string]any)
+		if ok && em["tag"] == "select_static" {
+			opts, _ := em["options"].([]any)
+			return opts
+		}
+	}
+	t.Fatal("no select_static in form")
+	return nil
+}
+
+func TestBuildClusterPickerCardOptions(t *testing.T) {
+	opts := clusterOptions(t, buildClusterPickerCard([]core.Cluster{
+		{Name: "prod", Label: "Production"},
+		{Name: "staging"},
+	}))
+	if len(opts) != 2 {
+		t.Fatalf("want 2 options, got %d", len(opts))
+	}
+	first := opts[0].(map[string]any)
+	if first["value"] != "prod" {
+		t.Errorf("option[0].value = %v, want prod", first["value"])
+	}
+	text := first["text"].(map[string]any)
+	if text["content"] != "Production" {
+		t.Errorf("option[0].text.content = %v, want Production", text["content"])
+	}
+	second := opts[1].(map[string]any)
+	secondText := second["text"].(map[string]any)
+	if second["value"] != "staging" || secondText["content"] != "staging" {
+		t.Errorf("option[1] = %v, want value+label both 'staging'", second)
+	}
+}
+
+func TestBuildClusterPickerCardEmpty(t *testing.T) {
+	card := buildClusterPickerCard(nil)
+	m := asMap(t, card) // must be valid JSON, no panic
+	if m["schema"] != "2.0" {
+		t.Errorf("expected schema 2.0, got %v", m["schema"])
+	}
+	if opts := clusterOptions(t, card); len(opts) != 0 {
+		t.Errorf("empty cluster list must yield 0 options, got %d", len(opts))
 	}
 }
 

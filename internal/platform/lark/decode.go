@@ -28,8 +28,8 @@ type cardActionPayload struct {
 }
 
 // decodeCardAction parses a card.action.trigger payload into a PickCluster, PickUseCase,
-// or SubmitForm. The selected cluster (when present) is carried in every action value and
-// threaded into Reply.Cluster so the core can resolve the right kato backend.
+// or SubmitForm. For pick_cluster, the cluster comes from form_value["cluster"] (fallback:
+// value["cluster"]); other actions carry it in value, threaded into Reply.Cluster.
 func decodeCardAction(raw []byte) (core.Intent, error) {
 	var p cardActionPayload
 	if err := json.Unmarshal(raw, &p); err != nil {
@@ -42,6 +42,12 @@ func decodeCardAction(raw []byte) (core.Intent, error) {
 	group, _ := p.Action.Value["group"].(string)
 	switch action {
 	case "pick_cluster":
+		// The select_static delivers its choice in form_value (keyed by the select's
+		// name). Prefer it; fall back to value["cluster"] for older/stale cards that
+		// still carry the cluster in the button value.
+		if fv := p.Action.FormValue["cluster"]; fv != "" {
+			reply.Cluster = fv
+		}
 		return core.PickCluster{Reply: reply}, nil
 	case "pick":
 		return core.PickUseCase{Reply: reply, Name: useCase}, nil
