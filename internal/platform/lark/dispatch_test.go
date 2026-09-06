@@ -10,7 +10,7 @@ import (
 
 	larkim "github.com/larksuite/oapi-sdk-go/v3/service/im/v1"
 
-	"github.com/zufardhiyaulhaq/kato-bot/internal/core"
+	"github.com/gopaytech/kato-bot/internal/core"
 )
 
 // TestShouldRespond covers the group-vs-DM gating: DMs always trigger the picker; group

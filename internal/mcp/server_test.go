@@ -8,9 +8,9 @@ import (
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/zufardhiyaulhaq/kato-bot/internal/core"
-	"github.com/zufardhiyaulhaq/kato-bot/internal/gateway"
-	"github.com/zufardhiyaulhaq/kato-bot/internal/groupapi"
+	"github.com/gopaytech/kato-bot/internal/core"
+	"github.com/gopaytech/kato-bot/internal/gateway"
+	"github.com/gopaytech/kato-bot/internal/groupapi"
 )
 
 // fakeKato mirrors internal/api's fake: records the last call, returns canned bytes.

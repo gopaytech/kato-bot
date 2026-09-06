@@ -8,7 +8,7 @@ import (
 
 	"github.com/larksuite/oapi-sdk-go/v3/event/dispatcher/callback"
 
-	"github.com/zufardhiyaulhaq/kato-bot/internal/core"
+	"github.com/gopaytech/kato-bot/internal/core"
 )
 
 // captureRenderer implements core.Renderer by BUILDING the card into `card` instead of

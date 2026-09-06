@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/zufardhiyaulhaq/kato-bot/internal/core"
+	"github.com/gopaytech/kato-bot/internal/core"
 )
 
 // decodeMessage maps any received user message to a ListClusters intent (show the cluster

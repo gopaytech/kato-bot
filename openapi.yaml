@@ -2,7 +2,7 @@ openapi: 3.0.3
 info:
   title: kato-bot REST proxy API
   description: |
-    kato-bot's multi-cluster REST proxy: [kato](https://github.com/zufardhiyaulhaq/kato)'s
+    kato-bot's multi-cluster REST proxy: [kato](https://github.com/gopaytech/kato)'s
     API, prefixed by cluster. One kato-bot fronts many clusters; discover them
     with `GET /api/v1/clusters`, then call kato through
     `/api/v1/clusters/{cluster}/...`. Requests and responses pass through
@@ -39,10 +39,10 @@ info:
   version: v1alpha1
   license:
     name: See repository
-    url: https://github.com/zufardhiyaulhaq/kato-bot
+    url: https://github.com/gopaytech/kato-bot
   contact:
     name: kato-bot
-    url: https://github.com/zufardhiyaulhaq/kato-bot
+    url: https://github.com/gopaytech/kato-bot
 
 servers:
   - url: http://localhost:9090
@@ -780,7 +780,7 @@ components:
           description: Set when the target's kato call failed after retries; the other run fields are omitted.
 
     # ---- kato schemas, mirrored (responses are proxied verbatim) ----
-    # Source of truth: kato's openapi.yaml (github.com/zufardhiyaulhaq/kato).
+    # Source of truth: kato's openapi.yaml (github.com/gopaytech/kato).
 
     InputDecl:
       type: object

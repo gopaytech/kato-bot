@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/zufardhiyaulhaq/kato-bot/internal/core"
+	"github.com/gopaytech/kato-bot/internal/core"
 )
 
 // fakeKato is a minimal core.KatoClient used to exercise Submit's full path

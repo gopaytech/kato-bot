@@ -3,7 +3,7 @@ package lark
 import (
 	"context"
 
-	"github.com/zufardhiyaulhaq/kato-bot/internal/core"
+	"github.com/gopaytech/kato-bot/internal/core"
 )
 
 // groupReporter implements core.GroupReporter over Lark: a parent card plus one

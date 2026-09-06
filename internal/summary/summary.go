@@ -6,7 +6,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/zufardhiyaulhaq/kato-bot/internal/core"
+	"github.com/gopaytech/kato-bot/internal/core"
 )
 
 // DefaultMaxEvidenceBytes bounds the evidence sent to the LLM.

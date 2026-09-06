@@ -3,7 +3,7 @@ package lark
 import (
 	"context"
 
-	"github.com/zufardhiyaulhaq/kato-bot/internal/core"
+	"github.com/gopaytech/kato-bot/internal/core"
 )
 
 // sender is the minimal Lark message surface the renderer needs. The real impl

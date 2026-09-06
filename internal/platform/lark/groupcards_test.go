@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/zufardhiyaulhaq/kato-bot/internal/core"
+	"github.com/gopaytech/kato-bot/internal/core"
 )
 
 func TestBuildGroupParentCardTallies(t *testing.T) {

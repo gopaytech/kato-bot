@@ -9,9 +9,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/zufardhiyaulhaq/kato-bot/internal/core"
-	"github.com/zufardhiyaulhaq/kato-bot/internal/gateway"
-	"github.com/zufardhiyaulhaq/kato-bot/internal/groupapi"
+	"github.com/gopaytech/kato-bot/internal/core"
+	"github.com/gopaytech/kato-bot/internal/gateway"
+	"github.com/gopaytech/kato-bot/internal/groupapi"
 )
 
 // fakeKato records the last raw call and returns canned bytes or an error.

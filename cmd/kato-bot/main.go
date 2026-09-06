@@ -9,15 +9,15 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/zufardhiyaulhaq/kato-bot/internal/api"
-	"github.com/zufardhiyaulhaq/kato-bot/internal/config"
-	"github.com/zufardhiyaulhaq/kato-bot/internal/core"
-	"github.com/zufardhiyaulhaq/kato-bot/internal/gateway"
-	"github.com/zufardhiyaulhaq/kato-bot/internal/groupapi"
-	"github.com/zufardhiyaulhaq/kato-bot/internal/kato"
-	mcpserver "github.com/zufardhiyaulhaq/kato-bot/internal/mcp"
-	"github.com/zufardhiyaulhaq/kato-bot/internal/platform/lark"
-	"github.com/zufardhiyaulhaq/kato-bot/internal/summary"
+	"github.com/gopaytech/kato-bot/internal/api"
+	"github.com/gopaytech/kato-bot/internal/config"
+	"github.com/gopaytech/kato-bot/internal/core"
+	"github.com/gopaytech/kato-bot/internal/gateway"
+	"github.com/gopaytech/kato-bot/internal/groupapi"
+	"github.com/gopaytech/kato-bot/internal/kato"
+	mcpserver "github.com/gopaytech/kato-bot/internal/mcp"
+	"github.com/gopaytech/kato-bot/internal/platform/lark"
+	"github.com/gopaytech/kato-bot/internal/summary"
 )
 
 func main() {

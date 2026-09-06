@@ -3,7 +3,7 @@ package lark
 import (
 	"testing"
 
-	"github.com/zufardhiyaulhaq/kato-bot/internal/core"
+	"github.com/gopaytech/kato-bot/internal/core"
 )
 
 func TestDecodeMessageListsClusters(t *testing.T) {

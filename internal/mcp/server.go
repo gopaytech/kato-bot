@@ -13,8 +13,8 @@ import (
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/zufardhiyaulhaq/kato-bot/internal/gateway"
-	"github.com/zufardhiyaulhaq/kato-bot/internal/groupapi"
+	"github.com/gopaytech/kato-bot/internal/gateway"
+	"github.com/gopaytech/kato-bot/internal/groupapi"
 )
 
 // serverName/serverVersion identify kato-bot to MCP clients.

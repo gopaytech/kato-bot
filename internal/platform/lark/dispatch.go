@@ -14,8 +14,8 @@ import (
 	larkim "github.com/larksuite/oapi-sdk-go/v3/service/im/v1"
 	larkws "github.com/larksuite/oapi-sdk-go/v3/ws"
 
-	"github.com/zufardhiyaulhaq/kato-bot/internal/core"
-	"github.com/zufardhiyaulhaq/kato-bot/internal/summary"
+	"github.com/gopaytech/kato-bot/internal/core"
+	"github.com/gopaytech/kato-bot/internal/summary"
 )
 
 // defaultMaxConcurrentRuns bounds in-flight kato runs when MaxConcurrent is unset.

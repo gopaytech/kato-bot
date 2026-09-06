@@ -8,8 +8,8 @@ import (
 	"io"
 	"net/http"
 
-	"github.com/zufardhiyaulhaq/kato-bot/internal/gateway"
-	"github.com/zufardhiyaulhaq/kato-bot/internal/groupapi"
+	"github.com/gopaytech/kato-bot/internal/gateway"
+	"github.com/gopaytech/kato-bot/internal/groupapi"
 )
 
 // maxBodyBytes bounds proxied request bodies; kato inputs/params are tiny.

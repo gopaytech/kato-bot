@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/zufardhiyaulhaq/kato-bot/internal/core"
-	"github.com/zufardhiyaulhaq/kato-bot/internal/kato"
+	"github.com/gopaytech/kato-bot/internal/core"
+	"github.com/gopaytech/kato-bot/internal/kato"
 )
 
 // *kato.Client must satisfy gateway.Client (compile-time proof the Raw surface matches).

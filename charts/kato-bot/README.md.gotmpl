@@ -1,9 +1,9 @@
 {{ template "chart.header" . }}
 {{ template "chart.description" . }}
 
-{{ template "chart.versionBadge" . }}{{ template "chart.typeBadge" . }}{{ template "chart.appVersionBadge" . }}[![made with Go](https://img.shields.io/badge/made%20with-Go-brightgreen)](http://golang.org) [![Github main branch build](https://img.shields.io/github/actions/workflow/status/zufardhiyaulhaq/kato-bot/main.yml?branch=main)](https://github.com/zufardhiyaulhaq/kato-bot/actions/workflows/main.yml) [![GitHub issues](https://img.shields.io/github/issues/zufardhiyaulhaq/kato-bot)](https://github.com/zufardhiyaulhaq/kato-bot/issues) [![GitHub pull requests](https://img.shields.io/github/issues-pr/zufardhiyaulhaq/kato-bot)](https://github.com/zufardhiyaulhaq/kato-bot/pulls)
+{{ template "chart.versionBadge" . }}{{ template "chart.typeBadge" . }}{{ template "chart.appVersionBadge" . }}[![made with Go](https://img.shields.io/badge/made%20with-Go-brightgreen)](http://golang.org) [![Github main branch build](https://img.shields.io/github/actions/workflow/status/gopaytech/kato-bot/main.yml?branch=main)](https://github.com/gopaytech/kato-bot/actions/workflows/main.yml) [![GitHub issues](https://img.shields.io/github/issues/gopaytech/kato-bot)](https://github.com/gopaytech/kato-bot/issues) [![GitHub pull requests](https://img.shields.io/github/issues-pr/gopaytech/kato-bot)](https://github.com/gopaytech/kato-bot/pulls)
 
-> A Lark chat adapter for [kato](https://github.com/zufardhiyaulhaq/kato). Invite the bot
+> A Lark chat adapter for [kato](https://github.com/gopaytech/kato). Invite the bot
 > to a Lark group, message it, pick a troubleshooting UseCase, fill in the inputs, and it
 > runs kato and posts the summary back — all over a WebSocket long-connection (no ingress).
 
@@ -107,7 +107,7 @@ helm install kato-bot charts/kato-bot -n kato --set lark.existingSecret=my-lark-
 Or from the packaged chart repository:
 
 ```console
-helm repo add kato-bot https://zufardhiyaulhaq.com/kato-bot/charts/releases/
+helm repo add kato-bot https://gopaytech.github.io/kato-bot/
 helm install my-kato-bot kato-bot/kato-bot --values values.yaml
 ```
 
@@ -115,6 +115,6 @@ helm install my-kato-bot kato-bot/kato-bot --values values.yaml
 
 {{ template "chart.valuesSection" . }}
 
-see example files [here](https://github.com/zufardhiyaulhaq/kato-bot/blob/main/charts/kato-bot/values.yaml)
+see example files [here](https://github.com/gopaytech/kato-bot/blob/main/charts/kato-bot/values.yaml)
 
 {{ template "helm-docs.versionFooter" . }}

@@ -15,7 +15,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/zufardhiyaulhaq/kato-bot/internal/core"
+	"github.com/gopaytech/kato-bot/internal/core"
 )
 
 // Client talks to kato's REST API.

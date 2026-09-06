@@ -1,6 +1,6 @@
 # kato-bot Architecture
 
-kato-bot is a **Lark (Feishu) chat adapter** for [kato](https://github.com/zufardhiyaulhaq/kato),
+kato-bot is a **Lark (Feishu) chat adapter** for [kato](https://github.com/gopaytech/kato),
 the Kubernetes troubleshooting operator. It lets a chat user pick a cluster, pick a
 troubleshooting UseCase, fill in that UseCase's declared inputs on an interactive card,
 and get kato's LLM-written summary back — all inside a single card that morphs in place.
