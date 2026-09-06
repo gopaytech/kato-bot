@@ -1,9 +1,12 @@
 # kato-bot Architecture
 
-kato-bot is a **Lark (Feishu) chat adapter** for [kato](https://github.com/gopaytech/kato),
-the Kubernetes troubleshooting operator. It lets a chat user pick a cluster, pick a
-troubleshooting UseCase, fill in that UseCase's declared inputs on an interactive card,
-and get kato's LLM-written summary back — all inside a single card that morphs in place.
+kato-bot is a **chat adapter** for [kato](https://github.com/gopaytech/kato), the
+Kubernetes troubleshooting operator, currently implemented for **Lark (Feishu)** and
+**Telegram**. It lets a chat user pick a cluster, pick a troubleshooting UseCase, fill
+in that UseCase's declared inputs on an interactive card (Lark) or through a short
+question-by-question wizard (Telegram), and get kato's LLM-written summary back — Lark
+morphs a single card in place, Telegram edits its own message in place to the same
+effect.
 
 It is deliberately a **thin adapter**: all troubleshooting logic (which checks run, in
 what order, what the LLM sees) lives in kato. kato-bot only discovers UseCases, collects
@@ -16,14 +19,17 @@ Lark cloud ◄──ws (dial-out)── kato-bot ──REST──► kato (clust
 ```
 
 - **Single binary, single replica, no ingress.** The bot dials *out* to Lark over a
-  WebSocket long-connection and reaches each kato over plain REST. The only listener is
-  a `/healthz` + `/readyz` probe server for Kubernetes.
-- **Stateless.** No database, no server-side sessions. All flow state rides inside the
-  Lark card itself (button `value` payloads). kato persists every run as a `Run` CRD,
-  so audit history lives there, not here.
+  WebSocket long-connection, long-polls Telegram's `getUpdates`, and reaches each kato
+  over plain REST. The only listener is a `/healthz` + `/readyz` probe server for
+  Kubernetes.
+- **Near-stateless.** No database. Most flow state rides inside the message itself
+  (Lark's card `value` payloads, or the cluster/UseCase riding in Telegram's
+  `callback_data`); Telegram's input wizard is the one exception, holding pending
+  answers in a small in-memory, TTL'd session map. kato persists every run as a `Run`
+  CRD, so audit history lives there, not here.
 - **No auth of its own.** kato's API is unauthenticated (and read-only by design);
-  access to the bot — and therefore to kato — is governed entirely by Lark group
-  membership.
+  access to the bot — and therefore to kato — is governed entirely by chat group/DM
+  membership on whichever platform(s) are configured.
 
 ## The kato contract (what this bot depends on)
 
@@ -55,11 +61,12 @@ Facts about kato that shape this design:
 ## Ports-and-adapters layout
 
 The core principle: `internal/core` owns all orchestration and imports **no platform
-packages**. Platforms (Lark today; Slack/Telegram planned) are adapters that only
-decode events into intents and render semantic states into cards.
+packages**. Platforms (Lark and Telegram today) are adapters that only decode events
+into intents and render semantic states into cards or messages.
 
 ```
-cmd/kato-bot/main.go       wiring: config → kato clients → registry → core → Lark adapter
+cmd/kato-bot/main.go       wiring: config → kato clients → registry → core → adapters
+                           (Lark and/or Telegram, whichever are configured)
 
 internal/config/           env config + clusters YAML file loading/validation
 
@@ -71,6 +78,10 @@ internal/core/             platform-agnostic types + state machine
 internal/kato/             REST client implementing core.KatoClient; maps non-2xx to
                            *APIError (carries HTTP status + kato's {"error":...} detail)
 
+internal/platform/         platform.Adapter{Name, Start} + platform.Deps: the seam
+  platform.go              main.go wires against; per-platform New(cfg, deps) returns
+                           (nil, nil) when that platform's config is absent
+
 internal/platform/lark/    Lark adapter
   dispatch.go              larkws long-connection, event handlers, dedup, run semaphore
   decode.go                event JSON → core.Intent (pure, SDK-free)
@@ -79,7 +90,15 @@ internal/platform/lark/    Lark adapter
   render.go                Renderer: emit = patch existing card | reply with new card
   sender.go                larkim API calls: message reply + message patch
 
-charts/kato-bot/           Helm chart: 1-replica Deployment, Secret, clusters ConfigMap
+internal/platform/telegram/  Telegram adapter
+  dispatch.go               getUpdates long-poll loop, dedup, run semaphore
+  decode.go                 update JSON → core.Intent (pure, SDK-free)
+  callback.go               names-based callback_data encode/decode
+  session.go                in-memory TTL'd wizard session store
+  render.go                 Renderer: emit = edit existing message | send new one
+  groupreporter.go          core.GroupReporter: edit-in-place group progress
+
+charts/kato-bot/           Helm chart: 1-replica Deployment, Secret(s), clusters ConfigMap
 ```
 
 ### The ports (`internal/core/types.go`)
@@ -87,12 +106,15 @@ charts/kato-bot/           Helm chart: 1-replica Deployment, Secret, clusters Co
 - **`KatoClient`** (inbound dependency): `ListUseCases` / `GetUseCase` / `Run`.
   Implemented by `internal/kato`. One client instance per configured cluster.
 - **`Renderer`** (outbound port): `RenderClusterPicker` / `RenderPicker` / `RenderForm`
-  / `RenderRunning` / `RenderResult` / `RenderError`. Implemented by the Lark adapter.
+  / `RenderRunning` / `RenderResult` / `RenderError`. Implemented by both the Lark and
+  Telegram adapters.
 - **`Intent`** (inbound events): `ListClusters`, `PickCluster`, `PickUseCase`,
-  `SubmitForm`. Produced by the adapter's decoder.
-- **`Reply`** — the opaque addressing context threaded through everything. For Lark:
-  `ChatID`, `MessageID` (the bot card's own id, for patching), `InReplyTo` (the user's
-  message, for the first card), and `Cluster` (the selected cluster name).
+  `SubmitForm`. Produced by each adapter's own decoder.
+- **`Reply`** — the opaque addressing context threaded through everything, shared by
+  both adapters (Telegram's numeric chat/message ids stringified into the same
+  fields): `ChatID`, `MessageID` (the bot's own message id, for patching/editing),
+  `InReplyTo` (the user's message, for the first reply), and `Cluster` (the selected
+  cluster name).
 - **`HTTPStatusError`** — a tiny interface (`HTTPStatus() int`, `Detail() string`) that
   lets core map kato failures to status-specific friendly text without importing the
   kato package (which imports core; importing back would cycle).
@@ -220,35 +242,61 @@ Lark redelivers an event that isn't ACKed quickly. Two defenses:
   "@kato start" can't produce two picker cards. Card actions don't need dedup: their
   handling is idempotent repainting of the same card.
 
+## The Telegram adapter
+
+Telegram has no card component, so the adapter reaches the same UX by other means:
+
+- **Transport is `getUpdates` long-polling** — pull instead of dial-out, but the same
+  "no ingress" shape as Lark's WebSocket.
+- **Message-edit stands in for card-patch**: `Renderer.emit` sends a new message when
+  `Reply.MessageID` is empty and edits that message thereafter, so it morphs through
+  picker → form → running → result like a Lark card does.
+- **A conversational wizard replaces the form widget**: once a UseCase is picked, the
+  bot asks for each declared input one message at a time (`/cancel` aborts). State
+  lives in an in-memory, TTL'd `sessions` store keyed by `(chat, message)`, with a
+  `(chat, user)` reverse index so a plain-text reply resolves back to the wizard.
+- **`callback_data` is short names, not JSON** (`c|cluster`, `u|cluster|usecase`, …) to
+  fit Telegram's 64-byte limit.
+- **`platform.Adapter`** (`Name`/`Start`) plus a per-platform `New(cfg, deps)` that
+  returns `(nil, nil)` when unconfigured is the seam `main.go` wires against — Lark
+  and Telegram run in the same process, each optional.
+- **Groups** reuse `core.GroupRunner`; the `GroupReporter` posts one progress message
+  and edits it in place as targets finish, mirroring Lark's edit-in-place card.
+
 ## Configuration
 
 Everything comes from the environment (`internal/config`); the Helm chart sets these on
-the Deployment. `LARK_APP_ID` / `LARK_APP_SECRET` are required (from a chart-managed or
-pre-existing Secret). The clusters file must exist and contain ≥1 valid cluster —
-misconfiguration fails fast at startup. Other knobs: `LARK_BASE_URL` (Lark
-international vs Feishu China), `KATO_RUN_TIMEOUT`, `MAX_CONCURRENT_RUNS`, `LOG_LEVEL`,
-`HEALTH_ADDR`. See the README for the full table.
+the Deployment. At least one platform must be configured: `LARK_APP_ID` /
+`LARK_APP_SECRET` for Lark, or `TELEGRAM_BOT_TOKEN` for Telegram (either from a
+chart-managed or pre-existing Secret) — both may be set to run side by side. The
+clusters file must exist and contain ≥1 valid cluster — misconfiguration fails fast at
+startup. Other knobs: `LARK_BASE_URL` (Lark international vs Feishu China),
+`TELEGRAM_API_BASE_URL`/`TELEGRAM_POLL_TIMEOUT`, `KATO_RUN_TIMEOUT`,
+`MAX_CONCURRENT_RUNS`, `LOG_LEVEL`, `HEALTH_ADDR`. See the README for the full table.
 
 ## Deployment
 
 The Helm chart (`charts/kato-bot/`) deploys:
 
-- a **single-replica** Deployment — required, not just simple: state rides in cards but
-  the WebSocket event routing is random across connections, and the run semaphore is
-  per-process. No Service or Ingress exists; the only inbound surface is the probe port.
+- a **single-replica** Deployment — required, not just simple: state rides in cards/
+  messages but Lark's WebSocket event routing is random across connections, and a
+  second `getUpdates` poller would race Telegram's offset with the first; the run
+  semaphore is also per-process. No Service or Ingress exists; the only inbound
+  surface is the probe port.
 - a ConfigMap holding `clusters.yaml`, mounted at `/etc/kato-bot/` and annotated with
   its own checksum so cluster changes roll the pod.
-- a Secret for the Lark credentials (or a reference to a pre-existing one via
-  `lark.existingSecret`).
+- a Secret per configured platform — Lark credentials (or `lark.existingSecret`) and/or
+  the Telegram bot token (or `telegram.existingSecret`).
 
 A probe-port bind failure is deliberately fatal at startup: otherwise the bot would run
 while Kubernetes kills the pod on failing probes with no obvious cause.
 
 ## Security model
 
-- **Authorization = Lark membership.** Anyone who can DM the bot or is in a group it
-  was invited to can run any UseCase on any configured cluster. This is accepted
-  because kato is strictly read-only against Kubernetes (`get/list/watch`).
+- **Authorization = chat membership** (Lark group, or Telegram DM/group). Anyone who
+  can DM the bot or is in a group it was invited to can run any UseCase on any
+  configured cluster. This is accepted because kato is strictly read-only against
+  Kubernetes (`get/list/watch`).
 - kato's API is unauthenticated; kato-bot is effectively the reach path to it. Network
   placement (in-cluster URLs, peering, NetworkPolicy) is the real boundary.
 - `insecureSkipVerify` is per-cluster and opt-in, for self-signed certs on trusted
@@ -266,12 +314,18 @@ No network, no live cluster, table tests throughout:
 - `internal/platform/lark` — card builders asserted on their produced JSON; the decoder
   fed sample event payloads and asserted on the emitted `Intent`; dispatch tested for
   dedup and mention-gating.
+- `internal/platform/telegram` — keyboard/message builders asserted on their rendered
+  text and markup; the decoder and callback encode/decode fed sample payloads; the
+  session store and dispatch tested for wizard transitions, TTL expiry, and dedup.
 
 ## Extending to another platform
 
-Adding Slack or Telegram means one new `internal/platform/<x>` package that (a) decodes
-platform events into the four `Intent` types, filling `Reply` with whatever that
-platform needs to address/update a message, and (b) implements `Renderer` for that
-platform's message format — with **zero changes** to `internal/core` or
-`internal/kato`. The Lark package is the reference implementation of that contract.
+Adding a platform means one new `internal/platform/<x>` package that (a) decodes
+platform events into the `Intent` types, filling `Reply` with whatever that platform
+needs to address/update a message, and (b) implements `Renderer` for that platform's
+message format — with **zero changes** to `internal/core` or `internal/kato`, plus a
+`New(cfg, deps) (platform.Adapter, error)` that `main.go` can wire in alongside the
+others. Lark and Telegram are both now reference implementations of that contract —
+Lark for a card-native platform, Telegram for one that needs message-edit and a
+conversational fallback for input collection.
 

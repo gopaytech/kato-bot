@@ -1,4 +1,4 @@
-// Command kato-bot runs the Lark chat adapter for kato.
+// Command kato-bot runs the kato chat adapter(s) (Lark and/or Telegram).
 package main
 
 import (
@@ -16,7 +16,9 @@ import (
 	"github.com/gopaytech/kato-bot/internal/groupapi"
 	"github.com/gopaytech/kato-bot/internal/kato"
 	mcpserver "github.com/gopaytech/kato-bot/internal/mcp"
+	"github.com/gopaytech/kato-bot/internal/platform"
 	"github.com/gopaytech/kato-bot/internal/platform/lark"
+	"github.com/gopaytech/kato-bot/internal/platform/telegram"
 	"github.com/gopaytech/kato-bot/internal/summary"
 )
 
@@ -25,8 +27,6 @@ func main() {
 	if err != nil {
 		log.Fatalf("config: %v", err)
 	}
-
-	renderer := lark.NewSender(cfg.LarkAppID, cfg.LarkAppSecret, cfg.LarkBaseURL)
 
 	registry := core.NewRegistry()
 	gw := gateway.New()
@@ -58,8 +58,6 @@ func main() {
 	}
 	groupRunner := &core.GroupRunner{Clusters: registry, MaxRetries: 3}
 
-	c := &core.Core{Clusters: registry, Groups: groupReg, R: renderer}
-
 	// Optional LLM group summarizer, shared by the interactive Lark adapter and
 	// the REST/MCP groupapi.Service. A nil summarizer is total: both callers
 	// degrade to a warning instead of failing.
@@ -72,22 +70,30 @@ func main() {
 		}
 	}
 
-	adapter := &lark.Adapter{
-		AppID:         cfg.LarkAppID,
-		AppSecret:     cfg.LarkAppSecret,
-		Core:          c,
-		R:             renderer,
-		RunTimeout:    cfg.KatoRunTimeout,
-		LogLevel:      cfg.LogLevel,
-		MaxConcurrent: cfg.MaxConcurrentRuns,
-		BaseURL:       cfg.LarkBaseURL,
-
-		Groups:       groupReg,
-		GroupRunner:  groupRunner,
-		GroupTimeout: cfg.GroupRunTimeout,
-
+	deps := platform.Deps{
+		Clusters:                registry,
+		Groups:                  groupReg,
+		Runner:                  groupRunner,
 		Summarizer:              summarizer,
+		RunTimeout:              cfg.KatoRunTimeout,
+		GroupTimeout:            cfg.GroupRunTimeout,
+		MaxConcurrent:           cfg.MaxConcurrentRuns,
+		LogLevel:                cfg.LogLevel,
 		SummaryMaxEvidenceBytes: cfg.GroupSummary.MaxEvidenceBytes,
+	}
+
+	lk, err := lark.New(cfg, deps)
+	if err != nil {
+		log.Fatalf("lark init: %v", err)
+	}
+
+	tg, err := telegram.New(cfg, deps)
+	if err != nil {
+		log.Fatalf("telegram init: %v", err)
+	}
+	adapters := platform.NonNil(lk, tg)
+	if len(adapters) == 0 {
+		log.Fatal("configure Lark and/or Telegram")
 	}
 
 	gapi := groupapi.New(groupReg, groupRunner, cfg.GroupRunTimeout)
@@ -124,10 +130,15 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	log.Printf("kato-bot connecting to Lark; clusters=[%s] (run timeout %s, domain %s)",
-		strings.Join(names, ", "), cfg.KatoRunTimeout, cfg.LarkBaseURL)
-	if err := adapter.Start(ctx); err != nil && ctx.Err() == nil {
-		log.Fatalf("lark adapter: %v", err)
+	log.Printf("kato-bot starting; clusters=[%s] (run timeout %s)",
+		strings.Join(names, ", "), cfg.KatoRunTimeout)
+	for _, a := range adapters {
+		go func(a platform.Adapter) {
+			if err := a.Start(ctx); err != nil && ctx.Err() == nil {
+				log.Fatalf("%s adapter: %v", a.Name(), err)
+			}
+		}(a)
 	}
+	<-ctx.Done()
 	log.Print("kato-bot shut down")
 }

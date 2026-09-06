@@ -67,12 +67,18 @@ type Config struct {
 	APIAddr string
 	// GroupSummary configures the optional LLM group summarizer.
 	GroupSummary GroupSummaryConfig
+	// Telegram bot: presence of TelegramBotToken enables the Telegram adapter.
+	TelegramBotToken    string
+	TelegramAPIBaseURL  string
+	TelegramPollTimeout time.Duration
 }
 
-// Load reads config from env, applying defaults. LARK_APP_ID and LARK_APP_SECRET are
-// required; the clusters file (KATO_CLUSTERS_FILE, default /etc/kato-bot/clusters.yaml)
-// must exist, parse, and list at least one valid cluster. KATO_RUN_TIMEOUT must parse as a
-// Go duration and MAX_CONCURRENT_RUNS as a positive int when set.
+// Load reads config from env, applying defaults. At least one of the two supported
+// platforms must be configured: Lark (both LARK_APP_ID and LARK_APP_SECRET set) and/or
+// Telegram (TELEGRAM_BOT_TOKEN set); setting only one of LARK_APP_ID/LARK_APP_SECRET is an
+// error. The clusters file (KATO_CLUSTERS_FILE, default /etc/kato-bot/clusters.yaml) must
+// exist, parse, and list at least one valid cluster. KATO_RUN_TIMEOUT must parse as a Go
+// duration and MAX_CONCURRENT_RUNS as a positive int when set.
 func Load() (Config, error) {
 	cfg := Config{
 		LarkAppID:         os.Getenv("LARK_APP_ID"),
@@ -86,9 +92,6 @@ func Load() (Config, error) {
 		// Feishu (China): https://open.feishu.cn.
 		LarkBaseURL: envOr("LARK_BASE_URL", "https://open.larksuite.com"),
 	}
-	if strings.TrimSpace(cfg.LarkAppID) == "" || strings.TrimSpace(cfg.LarkAppSecret) == "" {
-		return Config{}, fmt.Errorf("LARK_APP_ID and LARK_APP_SECRET are required")
-	}
 
 	clusters, err := loadClusters(envOr("KATO_CLUSTERS_FILE", "/etc/kato-bot/clusters.yaml"))
 	if err != nil {
@@ -101,6 +104,28 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 	cfg.Groups = groups
+
+	cfg.TelegramBotToken = os.Getenv("TELEGRAM_BOT_TOKEN")
+	cfg.TelegramAPIBaseURL = envOr("TELEGRAM_API_BASE_URL", "https://api.telegram.org")
+	cfg.TelegramPollTimeout = 30 * time.Second
+	if v := os.Getenv("TELEGRAM_POLL_TIMEOUT"); v != "" {
+		d, err := time.ParseDuration(v)
+		if err != nil {
+			return Config{}, fmt.Errorf("TELEGRAM_POLL_TIMEOUT: %w", err)
+		}
+		cfg.TelegramPollTimeout = d
+	}
+
+	larkID, larkSecret := strings.TrimSpace(cfg.LarkAppID), strings.TrimSpace(cfg.LarkAppSecret)
+	larkEnabled := larkID != "" && larkSecret != ""
+	larkPartial := (larkID != "") != (larkSecret != "")
+	telegramEnabled := strings.TrimSpace(cfg.TelegramBotToken) != ""
+	if larkPartial {
+		return Config{}, fmt.Errorf("LARK_APP_ID and LARK_APP_SECRET must be set together")
+	}
+	if !larkEnabled && !telegramEnabled {
+		return Config{}, fmt.Errorf("configure at least one platform: set LARK_APP_ID+LARK_APP_SECRET and/or TELEGRAM_BOT_TOKEN")
+	}
 
 	if v := os.Getenv("KATO_RUN_TIMEOUT"); v != "" {
 		d, err := time.ParseDuration(v)

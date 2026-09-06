@@ -31,9 +31,17 @@ spec:
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           envFrom:
             # Use a pre-existing Secret (must hold LARK_APP_ID + LARK_APP_SECRET) when
-            # lark.existingSecret is set; otherwise the chart-managed Secret.
+            # lark.existingSecret is set; otherwise the chart-managed Secret. Rendered
+            # only when Lark is actually configured (existingSecret, appId, or appSecret set).
+            {{- if or .Values.lark.existingSecret .Values.lark.appId .Values.lark.appSecret }}
             - secretRef:
                 name: {{ .Values.lark.existingSecret | default (include "kato-bot.name" .) }}
+            {{- end }}
+            # Telegram Secret (must hold TELEGRAM_BOT_TOKEN), rendered when telegram.enabled.
+            {{- if .Values.telegram.enabled }}
+            - secretRef:
+                name: {{ .Values.telegram.existingSecret | default (printf "%s-telegram" (include "kato-bot.name" .)) }}
+            {{- end }}
           env:
             - name: LARK_BASE_URL
               value: {{ .Values.larkBaseUrl | quote }}
@@ -51,6 +59,12 @@ spec:
               value: {{ .Values.maxConcurrentRuns | quote }}
             - name: API_ADDR
               value: {{ .Values.api.enabled | ternary ":9090" "" | quote }}
+            {{- if .Values.telegram.enabled }}
+            - name: TELEGRAM_API_BASE_URL
+              value: {{ .Values.telegram.apiBaseUrl | quote }}
+            - name: TELEGRAM_POLL_TIMEOUT
+              value: {{ .Values.telegram.pollTimeout | quote }}
+            {{- end }}
             - name: GROUP_SUMMARY_ENABLED
               value: {{ .Values.groupSummary.enabled | quote }}
             - name: GROUP_SUMMARY_BASE_URL
