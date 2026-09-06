@@ -121,9 +121,10 @@ func TestLoadInsecureSkipVerify(t *testing.T) {
 func TestLoadMissingRequired(t *testing.T) {
 	t.Setenv("LARK_APP_ID", "")
 	t.Setenv("LARK_APP_SECRET", "")
+	t.Setenv("TELEGRAM_BOT_TOKEN", "")
 	t.Setenv("KATO_CLUSTERS_FILE", writeClusters(t, twoClusters))
 	if _, err := Load(); err == nil {
-		t.Fatal("expected error when LARK_APP_ID/SECRET unset")
+		t.Fatal("expected error when neither Lark nor Telegram is configured")
 	}
 }
 
@@ -463,5 +464,106 @@ func TestLoadGroupsSummaryDefault(t *testing.T) {
 	}
 	if !cfg.Groups[0].Summary {
 		t.Error("Groups[0].Summary = false, want true")
+	}
+}
+
+func TestLoadTelegramOnlyOK(t *testing.T) {
+	t.Setenv("LARK_APP_ID", "")
+	t.Setenv("LARK_APP_SECRET", "")
+	t.Setenv("TELEGRAM_BOT_TOKEN", "123:abc")
+	t.Setenv("KATO_CLUSTERS_FILE", writeClusters(t, twoClusters))
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("telegram-only should load: %v", err)
+	}
+	if cfg.TelegramBotToken != "123:abc" {
+		t.Fatalf("token not loaded: %q", cfg.TelegramBotToken)
+	}
+	if cfg.TelegramAPIBaseURL != "https://api.telegram.org" {
+		t.Fatalf("default api base wrong: %q", cfg.TelegramAPIBaseURL)
+	}
+	if cfg.TelegramPollTimeout != 30*time.Second {
+		t.Fatalf("default poll timeout wrong: %v", cfg.TelegramPollTimeout)
+	}
+}
+
+func TestLoadTelegramPollTimeoutOverride(t *testing.T) {
+	t.Setenv("LARK_APP_ID", "")
+	t.Setenv("LARK_APP_SECRET", "")
+	t.Setenv("TELEGRAM_BOT_TOKEN", "123:abc")
+	t.Setenv("TELEGRAM_API_BASE_URL", "https://example.test")
+	t.Setenv("TELEGRAM_POLL_TIMEOUT", "5s")
+	t.Setenv("KATO_CLUSTERS_FILE", writeClusters(t, twoClusters))
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("err = %v", err)
+	}
+	if cfg.TelegramAPIBaseURL != "https://example.test" {
+		t.Errorf("TelegramAPIBaseURL = %q, want override", cfg.TelegramAPIBaseURL)
+	}
+	if cfg.TelegramPollTimeout != 5*time.Second {
+		t.Errorf("TelegramPollTimeout = %v, want 5s", cfg.TelegramPollTimeout)
+	}
+}
+
+func TestLoadBadTelegramPollTimeout(t *testing.T) {
+	t.Setenv("LARK_APP_ID", "")
+	t.Setenv("LARK_APP_SECRET", "")
+	t.Setenv("TELEGRAM_BOT_TOKEN", "123:abc")
+	t.Setenv("TELEGRAM_POLL_TIMEOUT", "notaduration")
+	t.Setenv("KATO_CLUSTERS_FILE", writeClusters(t, twoClusters))
+
+	if _, err := Load(); err == nil {
+		t.Fatal("expected error on bad TELEGRAM_POLL_TIMEOUT duration")
+	}
+}
+
+func TestLoadNeitherPlatformFails(t *testing.T) {
+	t.Setenv("LARK_APP_ID", "")
+	t.Setenv("LARK_APP_SECRET", "")
+	t.Setenv("TELEGRAM_BOT_TOKEN", "")
+	t.Setenv("KATO_CLUSTERS_FILE", writeClusters(t, twoClusters))
+
+	if _, err := Load(); err == nil {
+		t.Fatal("expected error when neither platform is configured")
+	}
+}
+
+func TestLoadPartialLarkFails(t *testing.T) {
+	t.Setenv("LARK_APP_ID", "cli_x")
+	t.Setenv("LARK_APP_SECRET", "")
+	t.Setenv("TELEGRAM_BOT_TOKEN", "")
+	t.Setenv("KATO_CLUSTERS_FILE", writeClusters(t, twoClusters))
+
+	if _, err := Load(); err == nil {
+		t.Fatal("expected error when Lark is half-configured and Telegram absent")
+	}
+}
+
+func TestLoadPartialLarkOtherSideFails(t *testing.T) {
+	t.Setenv("LARK_APP_ID", "")
+	t.Setenv("LARK_APP_SECRET", "secret_x")
+	t.Setenv("TELEGRAM_BOT_TOKEN", "")
+	t.Setenv("KATO_CLUSTERS_FILE", writeClusters(t, twoClusters))
+
+	if _, err := Load(); err == nil {
+		t.Fatal("expected error when only LARK_APP_SECRET is set")
+	}
+}
+
+func TestLoadBothPlatformsOK(t *testing.T) {
+	t.Setenv("LARK_APP_ID", "cli_x")
+	t.Setenv("LARK_APP_SECRET", "secret_x")
+	t.Setenv("TELEGRAM_BOT_TOKEN", "123:abc")
+	t.Setenv("KATO_CLUSTERS_FILE", writeClusters(t, twoClusters))
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("both platforms configured should load: %v", err)
+	}
+	if cfg.LarkAppID != "cli_x" || cfg.TelegramBotToken != "123:abc" {
+		t.Fatalf("cfg = %+v", cfg)
 	}
 }

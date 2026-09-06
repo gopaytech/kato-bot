@@ -50,10 +50,23 @@ lark:
   # -- Name of a pre-existing Secret holding LARK_APP_ID and LARK_APP_SECRET. When set,
   # the chart references it and does NOT create its own Secret (appId/appSecret ignored).
   existingSecret: ""
-  # -- Lark app id. Required unless lark.existingSecret is set.
+  # -- Lark app id. Required unless lark.existingSecret is set or only Telegram is enabled.
   appId: ""
   # -- Lark app secret. Required unless lark.existingSecret is set.
   appSecret: ""
+
+telegram:
+  # -- Enable the Telegram adapter. When true, a bot token is required (inline or via existingSecret).
+  enabled: false
+  # -- Name of a pre-existing Secret holding TELEGRAM_BOT_TOKEN. When set, the chart
+  # references it and does NOT create its own Telegram Secret (botToken ignored).
+  existingSecret: ""
+  # -- Telegram bot token from BotFather. Required when telegram.enabled and no existingSecret.
+  botToken: ""
+  # -- Telegram Bot API base URL (override only for a self-hosted Bot API server).
+  apiBaseUrl: https://api.telegram.org
+  # -- getUpdates long-poll timeout (Go duration).
+  pollTimeout: 30s
 
 groupSummary:
   # -- Enable the optional LLM group-summary (kato-bot's only LLM use).

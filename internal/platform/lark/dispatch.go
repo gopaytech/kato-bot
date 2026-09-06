@@ -45,6 +45,9 @@ type Adapter struct {
 	seen dedup // guards against Lark's at-least-once event redelivery
 }
 
+// Name identifies this platform for logs and the generic runner.
+func (a *Adapter) Name() string { return "lark" }
+
 // dedup drops duplicate message events. Lark delivers events at least once and REDELIVERS
 // an event if it is not ACKed quickly enough; without this, a single "@kato start" can
 // produce two picker cards. seen records a message id and reports whether it was already

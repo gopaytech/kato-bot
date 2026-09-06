@@ -3,6 +3,7 @@ module github.com/gopaytech/kato-bot
 go 1.25.0
 
 require (
+	github.com/go-telegram/bot v1.25.0
 	github.com/larksuite/oapi-sdk-go/v3 v3.9.5
 	github.com/modelcontextprotocol/go-sdk v1.6.1
 	gopkg.in/yaml.v3 v3.0.1

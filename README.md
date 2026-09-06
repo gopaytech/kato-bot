@@ -1,30 +1,38 @@
 # kato-bot
 
-Lark chat adapter for kato troubleshooting flows
+Chat adapter (Lark + Telegram) for kato troubleshooting flows
 
 ![Version: 0.5.0](https://img.shields.io/badge/Version-0.5.0-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 0.5.0](https://img.shields.io/badge/AppVersion-0.5.0-informational?style=flat-square) [![made with Go](https://img.shields.io/badge/made%20with-Go-brightgreen)](http://golang.org) [![Github main branch build](https://img.shields.io/github/actions/workflow/status/gopaytech/kato-bot/main.yml?branch=main)](https://github.com/gopaytech/kato-bot/actions/workflows/main.yml) [![GitHub issues](https://img.shields.io/github/issues/gopaytech/kato-bot)](https://github.com/gopaytech/kato-bot/issues) [![GitHub pull requests](https://img.shields.io/github/issues-pr/gopaytech/kato-bot)](https://github.com/gopaytech/kato-bot/pulls)
 
-> A Lark chat adapter for [kato](https://github.com/gopaytech/kato). Invite the bot
-> to a Lark group, message it, pick a troubleshooting UseCase, fill in the inputs, and it
-> runs kato and posts the summary back — all over a WebSocket long-connection (no ingress).
+> A chat adapter for [kato](https://github.com/gopaytech/kato) on **Lark and Telegram**.
+> Invite the bot to a Lark group (or DM/add it on Telegram), pick a cluster, pick a
+> troubleshooting UseCase, fill in the inputs, and it runs kato and posts the summary
+> back — no ingress required on either platform.
 
 ## How it works
 
 ```
-Lark group ──ws──> kato-bot ──REST──> kato (in-cluster)
+Lark / Telegram ──▶ kato-bot ──REST──▶ kato (in-cluster)
 ```
 
-1. Message the bot → it shows a card listing the configured **clusters**. In a **direct
-   message** any text works; in a **group** @mention the bot (e.g. `@kato start`).
-2. Pick a cluster → the card lists that cluster's kato UseCases.
-3. Pick a UseCase → the card becomes a form of that UseCase's inputs.
-4. Submit → the card shows "running…", then the LLM summary kato produced.
+1. Message the bot → it lists the configured **clusters**. On Lark, in a **direct
+   message** any text works and in a **group** you @mention the bot (e.g. `@kato start`);
+   on Telegram you DM the bot or use `/kato`/@mention in a group.
+2. Pick a cluster → it lists that cluster's kato UseCases.
+3. Pick a UseCase → you're prompted for that UseCase's inputs.
+4. Provide the inputs → it shows "running…", then the LLM summary kato produced.
 
-Cards are posted as a **threaded reply** to the triggering message, so each
-troubleshooting flow stays in its own thread and keeps the channel tidy.
+The platforms differ in how steps 1-4 are presented: **Lark** drives the whole flow
+through an interactive card that updates in place, posted as a **threaded reply** to
+the triggering message (so each troubleshooting flow stays in its own thread), over a
+WebSocket long-connection. **Telegram** uses inline-keyboard buttons for picking the
+cluster and UseCase, then a short conversational Q&A (one question at a time, `/cancel`
+to abort) for the inputs, editing its own message in place as the flow progresses, over
+long-poll `getUpdates` (no card patch).
 
-Access is governed entirely by Lark group membership; kato-bot adds no auth (kato is
-read-only). v1 supports Lark; Slack and Telegram are planned on the same core.
+Access is governed entirely by chat membership — Lark group membership, or Telegram
+DM/group membership; kato-bot adds no auth of its own (kato is read-only). Supports
+Lark and Telegram on the same core, and both can be enabled in one deployment.
 
 Clusters are configured via the chart's `clusters:` list (rendered into a ConfigMap the
 bot reads). The bot must be able to reach each cluster's kato URL over the network —
@@ -60,9 +68,12 @@ below set them on the Deployment):
 
 | var | default | meaning |
 |---|---|---|
-| `LARK_APP_ID` | (required) | Lark app id |
-| `LARK_APP_SECRET` | (required) | Lark app secret |
+| `LARK_APP_ID` | (required for Lark) | Lark app id |
+| `LARK_APP_SECRET` | (required for Lark) | Lark app secret |
 | `LARK_BASE_URL` | `https://open.larksuite.com` | open-platform base URL (`https://open.larksuite.com` international, `https://open.feishu.cn` China) |
+| `TELEGRAM_BOT_TOKEN` | (none) | BotFather token; presence enables the Telegram adapter |
+| `TELEGRAM_API_BASE_URL` | `https://api.telegram.org` | override for a self-hosted Bot API server |
+| `TELEGRAM_POLL_TIMEOUT` | `30s` | `getUpdates` long-poll timeout |
 | `KATO_CLUSTERS_FILE` | `/etc/kato-bot/clusters.yaml` | path to the YAML file listing clusters (name → kato URL); at least one required |
 | `KATO_RUN_TIMEOUT` | `360s` | per-run client timeout |
 | `LOG_LEVEL` | `info` | log verbosity (`debug`/`info`/`warn`/`error`) |
@@ -82,6 +93,16 @@ before `go run ./cmd/kato-bot` (the binary reads the environment; it does not au
 - Event subscription: **Use long connection (WebSocket)**; subscribe to
   `im.message.receive_v1` and enable card callbacks (`card.action.trigger`) over the
   long connection.
+
+## Telegram bot setup
+
+- Create a bot with @BotFather and copy its token into `telegram.botToken` (or a
+  Secret referenced by `telegram.existingSecret`) with `telegram.enabled=true`.
+- DM the bot, or add it to a group. In groups, trigger it with `/kato` or by
+  @mentioning it (enable group privacy off, or add it as admin, so it receives
+  the trigger message). It fills use-case inputs by asking one question at a time;
+  reply with each value, or send `/cancel` to abort.
+- Lark and Telegram can run together in one deployment; configure either or both.
 
 ## Installing
 
@@ -132,7 +153,7 @@ helm install my-kato-bot kato-bot/kato-bot --values values.yaml
 | image.repository | string | `"ghcr.io/gopaytech/kato-bot"` | Container image repository. |
 | image.tag | string | `"v0.5.0"` | Image tag. Defaults to the chart appVersion when empty. |
 | katoRunTimeout | string | `"360s"` | Per-run client timeout for kato's synchronous POST /run (Go duration). |
-| lark.appId | string | `""` | Lark app id. Required unless lark.existingSecret is set. |
+| lark.appId | string | `""` | Lark app id. Required unless lark.existingSecret is set or only Telegram is enabled. |
 | lark.appSecret | string | `""` | Lark app secret. Required unless lark.existingSecret is set. |
 | lark.existingSecret | string | `""` | Name of a pre-existing Secret holding LARK_APP_ID and LARK_APP_SECRET. When set, the chart references it and does NOT create its own Secret (appId/appSecret ignored). |
 | larkBaseUrl | string | `"https://open.larksuite.com"` | Lark open-platform base URL. Lark international: https://open.larksuite.com; Feishu (China): https://open.feishu.cn. |
@@ -140,6 +161,11 @@ helm install my-kato-bot kato-bot/kato-bot --values values.yaml
 | maxConcurrentRuns | int | `4` | Max in-flight kato runs before new submits get a "kato is busy" card. |
 | nodeSelector | object | `{}` | Node selector for pod scheduling. |
 | resources | object | `{}` | Pod resource requests and limits. |
+| telegram.apiBaseUrl | string | `"https://api.telegram.org"` | Telegram Bot API base URL (override only for a self-hosted Bot API server). |
+| telegram.botToken | string | `""` | Telegram bot token from BotFather. Required when telegram.enabled and no existingSecret. |
+| telegram.enabled | bool | `false` | Enable the Telegram adapter. When true, a bot token is required (inline or via existingSecret). |
+| telegram.existingSecret | string | `""` | Name of a pre-existing Secret holding TELEGRAM_BOT_TOKEN. When set, the chart references it and does NOT create its own Telegram Secret (botToken ignored). |
+| telegram.pollTimeout | string | `"30s"` | getUpdates long-poll timeout (Go duration). |
 | tolerations | list | `[]` | Tolerations for pod scheduling. |
 
 see example files [here](https://github.com/gopaytech/kato-bot/blob/main/charts/kato-bot/values.yaml)
