@@ -1,5 +1,5 @@
 # Telegram Platform Adapter Implementation Plan
-
+{% raw %}
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add Telegram as a second chat platform alongside Lark at full feature parity (single-run with inputs, predefined group runs, and the optional LLM group summary), wired through one generic adapter seam.
@@ -2626,3 +2626,4 @@ git commit -m "docs: document the Telegram adapter (README env/setup + ARCHITECT
 - `internal/core` / `internal/kato` are never edited — if a task tempts you to, stop: the wizard is driven by core's existing `SubmitForm→RenderForm` loop (Task 10) and needs no core change.
 - Names must stay consistent across tasks: `sessions`/`pending`/`begin`/`byMsg`/`byUser`/`update`/`end`/`sweep` (Task 8); `sender`/`groupSender`/`apiSender`/`newAPISender` (Task 5); `Renderer{S, sess}` (Task 10); `Adapter{core, r, sess, deps, sem, seen, api}` (Task 12); callback funcs `cbCluster`/`cbUseCase`/`cbRun`/`cbGroup`/`cbRunGroup`/`decodeCB` (Task 6).
 - Every `github.com/go-telegram/bot` call carries a `// VERIFY` note; confirm each against the pinned version during Tasks 5 and 12 and correct field/method names as needed — the pure tests don't cover the library boundary, so the compiler + a real-token smoke test are your checks there.
+{% endraw %}
