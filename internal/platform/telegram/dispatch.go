@@ -162,8 +162,17 @@ func (a *Adapter) runGroup(ctx context.Context, v core.RunGroup) {
 			if warn != "" {
 				text = "⚠️ " + warn
 			}
-			if _, e := a.groupSender().Send(bg, chat, "<b>Summary — "+esc(g.Name)+"</b>\n"+esc(text), nil); e != nil {
-				log.Printf("telegram: group summary %s: %v", g.Name, e)
+			// The summary can exceed Telegram's 4096-char message limit (e.g. a long
+			// LLM summary), so chunk it the same way RenderResult does. The header
+			// lands in chunk 0 since we chunk the full built string. Each chunk is
+			// independent: a later chunk's Send failure is logged but doesn't stop
+			// earlier/subsequent chunks from being attempted.
+			full := "<b>Summary — " + esc(g.Name) + "</b>\n" + esc(text)
+			gs := a.groupSender()
+			for _, part := range chunk4096(full) {
+				if _, e := gs.Send(bg, chat, part, nil); e != nil {
+					log.Printf("telegram: group summary %s: %v", g.Name, e)
+				}
 			}
 		}
 	}()

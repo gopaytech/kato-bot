@@ -32,7 +32,8 @@ type Adapter struct {
 	sem  chan struct{}
 	seen *dedup
 
-	api *apiSender // set in Start once the bot exists; used by groupSender()
+	api     *apiSender  // the real Bot API sender; wrapped in Start and used to seed gsender
+	gsender groupSender // set in Start (to api); overridable in tests via groupSender()
 }
 
 var _ platform.Adapter = (*Adapter)(nil)
@@ -56,7 +57,10 @@ func New(cfg config.Config, d platform.Deps) (platform.Adapter, error) {
 
 func (a *Adapter) Name() string { return "telegram" }
 
-func (a *Adapter) groupSender() groupSender { return a.api }
+// groupSender returns the sender used for group runs. It's a field (set in
+// Start, or injected directly by tests) rather than always deriving from api
+// so a test can supply a fake without a real *bot.Bot.
+func (a *Adapter) groupSender() groupSender { return a.gsender }
 
 // Start builds the bot, wires the renderer/core, and blocks on the long-poll
 // loop until ctx is cancelled.
@@ -92,6 +96,7 @@ func (a *Adapter) Start(ctx context.Context) error {
 		return err
 	}
 	a.api = newAPISender(b)
+	a.gsender = a.api
 	a.r = &Renderer{S: a.api, sess: a.sess}
 	a.core = &core.Core{Clusters: a.deps.Clusters, Groups: a.deps.Groups, R: a.r}
 
