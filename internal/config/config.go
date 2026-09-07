@@ -71,6 +71,11 @@ type Config struct {
 	TelegramBotToken    string
 	TelegramAPIBaseURL  string
 	TelegramPollTimeout time.Duration
+	// TelegramAllowedChats / TelegramAllowedUsers optionally restrict which Telegram
+	// chats/users may use the bot. Empty (nil) means unrestricted for that dimension —
+	// both empty (the default) preserves the historical open-to-anyone behavior.
+	TelegramAllowedChats []int64
+	TelegramAllowedUsers []int64
 }
 
 // Load reads config from env, applying defaults. At least one of the two supported
@@ -114,6 +119,15 @@ func Load() (Config, error) {
 			return Config{}, fmt.Errorf("TELEGRAM_POLL_TIMEOUT: %w", err)
 		}
 		cfg.TelegramPollTimeout = d
+	}
+
+	cfg.TelegramAllowedChats, err = parseInt64List("TELEGRAM_ALLOWED_CHATS", os.Getenv("TELEGRAM_ALLOWED_CHATS"))
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.TelegramAllowedUsers, err = parseInt64List("TELEGRAM_ALLOWED_USERS", os.Getenv("TELEGRAM_ALLOWED_USERS"))
+	if err != nil {
+		return Config{}, err
 	}
 
 	larkID, larkSecret := strings.TrimSpace(cfg.LarkAppID), strings.TrimSpace(cfg.LarkAppSecret)
@@ -337,4 +351,28 @@ func envOr(key, def string) string {
 		return v
 	}
 	return def
+}
+
+// parseInt64List parses a comma-separated list of int64 (e.g. Telegram chat/user ids,
+// which can be negative for groups). Each element is trimmed of surrounding spaces;
+// empty elements (from "", "1,,2", leading/trailing commas) are skipped. An empty or
+// unset s yields a nil list. A malformed element is reported as a config error
+// prefixed with name, e.g. `TELEGRAM_ALLOWED_CHATS: invalid id "foo": ...`.
+func parseInt64List(name, s string) ([]int64, error) {
+	if strings.TrimSpace(s) == "" {
+		return nil, nil
+	}
+	var out []int64
+	for _, part := range strings.Split(s, ",") {
+		p := strings.TrimSpace(part)
+		if p == "" {
+			continue
+		}
+		n, err := strconv.ParseInt(p, 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("%s: invalid id %q: %w", name, p, err)
+		}
+		out = append(out, n)
+	}
+	return out, nil
 }

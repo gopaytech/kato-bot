@@ -363,6 +363,185 @@ func TestRunGroupSummaryChunking(t *testing.T) {
 	release()
 }
 
+// TestAllowed covers the (*Adapter).allowed predicate directly: chats/users maps
+// are set on a bare test Adapter (no need to exercise the real onUpdate/bot
+// library path) to verify the AND semantics between the chat and user
+// dimensions, including that both empty means "allow everyone" (backward
+// compatible default).
+func TestAllowed(t *testing.T) {
+	cases := []struct {
+		name         string
+		allowedChats map[int64]struct{}
+		allowedUsers map[int64]struct{}
+		chatID       int64
+		userID       int64
+		want         bool
+	}{
+		{
+			name: "both empty allows anything",
+			// no allowedChats/allowedUsers set
+			chatID: -1001234567890, userID: 999,
+			want: true,
+		},
+		{
+			name:         "chats-only: matching negative group chat id, any user",
+			allowedChats: map[int64]struct{}{-1001234567890: {}},
+			chatID:       -1001234567890, userID: 12345,
+			want: true,
+		},
+		{
+			name:         "chats-only: non-matching chat denied regardless of user",
+			allowedChats: map[int64]struct{}{-1001234567890: {}},
+			chatID:       -999, userID: 12345,
+			want: false,
+		},
+		{
+			name:         "users-only: matching user in any chat",
+			allowedUsers: map[int64]struct{}{42: {}},
+			chatID:       777, userID: 42,
+			want: true,
+		},
+		{
+			name:         "users-only: non-matching user denied",
+			allowedUsers: map[int64]struct{}{42: {}},
+			chatID:       777, userID: 43,
+			want: false,
+		},
+		{
+			name:         "both set: matches both",
+			allowedChats: map[int64]struct{}{-100: {}},
+			allowedUsers: map[int64]struct{}{42: {}},
+			chatID:       -100, userID: 42,
+			want: true,
+		},
+		{
+			name:         "both set: chat matches but user doesn't",
+			allowedChats: map[int64]struct{}{-100: {}},
+			allowedUsers: map[int64]struct{}{42: {}},
+			chatID:       -100, userID: 43,
+			want: false,
+		},
+		{
+			name:         "both set: user matches but chat doesn't",
+			allowedChats: map[int64]struct{}{-100: {}},
+			allowedUsers: map[int64]struct{}{42: {}},
+			chatID:       -200, userID: 42,
+			want: false,
+		},
+		{
+			name:         "both set: neither matches",
+			allowedChats: map[int64]struct{}{-100: {}},
+			allowedUsers: map[int64]struct{}{42: {}},
+			chatID:       -200, userID: 43,
+			want: false,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			a := &Adapter{allowedChats: tc.allowedChats, allowedUsers: tc.allowedUsers}
+			if got := a.allowed(tc.chatID, tc.userID); got != tc.want {
+				t.Errorf("allowed(%d, %d) = %v, want %v", tc.chatID, tc.userID, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestOnUpdateDeniedMessageDropped drives onUpdate directly (the real
+// security-critical wiring, not just the allowed() predicate) with a message
+// from a user outside the configured allowlist. The deny gate must return
+// before handleMessage ever runs, so no cluster picker should be sent.
+func TestOnUpdateDeniedMessageDropped(t *testing.T) {
+	a, f, _ := newTestAdapter()
+	a.allowedUsers = map[int64]struct{}{42: {}}
+	a.onUpdate(context.Background(), &models.Update{Message: &models.Message{
+		ID: 1, Chat: models.Chat{ID: 100, Type: models.ChatTypePrivate}, From: &models.User{ID: 7}, Text: "hi",
+	}})
+	if got := f.sendCount(); got != 0 {
+		t.Fatalf("denied message should never reach handleMessage, got %d sends", got)
+	}
+}
+
+// TestOnUpdateAllowedMessagePasses is the positive counterpart: a message
+// from an allowlisted user must pass the gate and reach handleMessage, which
+// (private chat, non-empty text) shows the cluster picker via a single Send.
+func TestOnUpdateAllowedMessagePasses(t *testing.T) {
+	a, f, _ := newTestAdapter()
+	a.allowedUsers = map[int64]struct{}{42: {}}
+	a.onUpdate(context.Background(), &models.Update{Message: &models.Message{
+		ID: 1, Chat: models.Chat{ID: 100, Type: models.ChatTypePrivate}, From: &models.User{ID: 42}, Text: "hi",
+	}})
+	if got := f.sendCount(); got != 1 {
+		t.Fatalf("allowed message should reach handleMessage and show the picker, got %d sends", got)
+	}
+}
+
+// TestOnUpdateDeniedCallbackDropped exercises the callback branch of onUpdate.
+// A denied callback must return before a.api.Answer (so a.api stays nil-safe
+// here) and before any dispatch: no Send/Edit, and no wizard session created.
+func TestOnUpdateDeniedCallbackDropped(t *testing.T) {
+	a, f, sess := newTestAdapter()
+	a.allowedUsers = map[int64]struct{}{42: {}}
+	a.onUpdate(context.Background(), &models.Update{CallbackQuery: &models.CallbackQuery{
+		ID: "q", From: models.User{ID: 7}, Data: cbCluster("prod"),
+		Message: models.MaybeInaccessibleMessage{Message: &models.Message{ID: 5, Chat: models.Chat{ID: 100}}},
+	}})
+	if got := f.sendCount(); got != 0 {
+		t.Fatalf("denied callback should not send anything, got %d sends", got)
+	}
+	if got := f.editCount(); got != 0 {
+		t.Fatalf("denied callback should not edit anything, got %d edits", got)
+	}
+	if _, _, ok := sess.byUser(100, 7); ok {
+		t.Fatal("denied callback should not create a wizard session")
+	}
+}
+
+// TestAllowedUnknownChat covers (*Adapter).allowedUnknownChat directly: the
+// helper onUpdate falls back to when a callback's container message is
+// inaccessible (chat id unknowable). A configured chat allowlist can never
+// match an unknown chat, so it must fail closed regardless of the user.
+func TestAllowedUnknownChat(t *testing.T) {
+	cases := []struct {
+		name         string
+		allowedChats map[int64]struct{}
+		allowedUsers map[int64]struct{}
+		userID       int64
+		want         bool
+	}{
+		{
+			name:         "chats restricted denies regardless of user",
+			allowedChats: map[int64]struct{}{-100: {}},
+			userID:       42,
+			want:         false,
+		},
+		{
+			name:         "chats empty, user in allowlist",
+			allowedUsers: map[int64]struct{}{42: {}},
+			userID:       42,
+			want:         true,
+		},
+		{
+			name:   "chats empty, users empty allows everyone",
+			userID: 999,
+			want:   true,
+		},
+		{
+			name:         "chats empty, users non-empty, user not in it",
+			allowedUsers: map[int64]struct{}{42: {}},
+			userID:       7,
+			want:         false,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			a := &Adapter{allowedChats: tc.allowedChats, allowedUsers: tc.allowedUsers}
+			if got := a.allowedUnknownChat(tc.userID); got != tc.want {
+				t.Errorf("allowedUnknownChat(%d) = %v, want %v", tc.userID, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestDedupDropsRepeatedUpdateID(t *testing.T) {
 	d := &dedup{}
 	if d.seen("u1") {

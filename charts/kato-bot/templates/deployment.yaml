@@ -64,6 +64,14 @@ spec:
               value: {{ .Values.telegram.apiBaseUrl | quote }}
             - name: TELEGRAM_POLL_TIMEOUT
               value: {{ .Values.telegram.pollTimeout | quote }}
+            {{- if .Values.telegram.allowedChats }}
+            - name: TELEGRAM_ALLOWED_CHATS
+              value: {{ join "," .Values.telegram.allowedChats | quote }}
+            {{- end }}
+            {{- if .Values.telegram.allowedUsers }}
+            - name: TELEGRAM_ALLOWED_USERS
+              value: {{ join "," .Values.telegram.allowedUsers | quote }}
+            {{- end }}
             {{- end }}
             - name: GROUP_SUMMARY_ENABLED
               value: {{ .Values.groupSummary.enabled | quote }}

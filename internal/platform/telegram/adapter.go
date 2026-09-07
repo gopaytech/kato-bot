@@ -34,6 +34,12 @@ type Adapter struct {
 
 	api     *apiSender  // the real Bot API sender; wrapped in Start and used to seed gsender
 	gsender groupSender // set in Start (to api); overridable in tests via groupSender()
+
+	// allowedChats / allowedUsers optionally restrict who can use the bot. An empty
+	// (nil or zero-length) map means that dimension is unrestricted. Both empty ⇒
+	// allow everyone (the historical, backward-compatible default).
+	allowedChats map[int64]struct{}
+	allowedUsers map[int64]struct{}
 }
 
 var _ platform.Adapter = (*Adapter)(nil)
@@ -51,8 +57,53 @@ func New(cfg config.Config, d platform.Deps) (platform.Adapter, error) {
 	a := &Adapter{
 		token: cfg.TelegramBotToken, apiBaseURL: cfg.TelegramAPIBaseURL, pollTimeout: cfg.TelegramPollTimeout,
 		sess: sess, deps: d, sem: make(chan struct{}, n), seen: &dedup{},
+		allowedChats: int64Set(cfg.TelegramAllowedChats),
+		allowedUsers: int64Set(cfg.TelegramAllowedUsers),
 	}
 	return a, nil
+}
+
+// int64Set builds a lookup set from a list of ids; a nil/empty list yields a nil map
+// (so len() is 0, meaning "unrestricted" per allowed's semantics).
+func int64Set(ids []int64) map[int64]struct{} {
+	if len(ids) == 0 {
+		return nil
+	}
+	m := make(map[int64]struct{}, len(ids))
+	for _, id := range ids {
+		m[id] = struct{}{}
+	}
+	return m
+}
+
+// allowed implements the chat/user allowlist predicate: a chat (or user) dimension
+// with no configured allowlist is unrestricted; both configured requires both to
+// match (AND semantics). Both empty ⇒ allow everyone (backward compatible default).
+func (a *Adapter) allowed(chatID, userID int64) bool {
+	chatOK := len(a.allowedChats) == 0
+	if !chatOK {
+		_, chatOK = a.allowedChats[chatID]
+	}
+	userOK := len(a.allowedUsers) == 0
+	if !userOK {
+		_, userOK = a.allowedUsers[userID]
+	}
+	return chatOK && userOK
+}
+
+// allowedUnknownChat evaluates the allow predicate when the chat id could not be
+// determined (an inaccessible callback-query container message). A configured chat
+// allowlist can never match an unknown chat, so it fails closed (deny); with no chat
+// restriction, only the user allowlist (if any) applies.
+func (a *Adapter) allowedUnknownChat(userID int64) bool {
+	if len(a.allowedChats) > 0 {
+		return false
+	}
+	if len(a.allowedUsers) == 0 {
+		return true
+	}
+	_, ok := a.allowedUsers[userID]
+	return ok
 }
 
 func (a *Adapter) Name() string { return "telegram" }
@@ -143,6 +194,33 @@ func (a *Adapter) onUpdate(ctx context.Context, u *models.Update) {
 	switch {
 	case u.CallbackQuery != nil:
 		cq := u.CallbackQuery
+		userID := cq.From.ID
+		// msg.Chat.ID is the chat the callback's message lives in; cq.Message.Message
+		// is nil when Telegram considers the container message inaccessible (too old
+		// or deleted), in which case the chat is unknown to us.
+		var (
+			chatID      int64
+			chatUnknown bool
+			ok          bool
+		)
+		if cq.Message.Message != nil {
+			chatID = cq.Message.Message.Chat.ID
+			ok = a.allowed(chatID, userID)
+		} else {
+			// Fail-closed: an unknown chat can't be matched against a non-empty
+			// allowlist, so any chat restriction denies it outright. With no chat
+			// restriction, only the user allowlist (if any) applies.
+			chatUnknown = true
+			ok = a.allowedUnknownChat(userID)
+		}
+		if !ok {
+			if chatUnknown {
+				log.Printf("telegram: denied update from chat=unknown user=%d", userID)
+			} else {
+				log.Printf("telegram: denied update from chat=%d user=%d", chatID, userID)
+			}
+			return
+		}
 		_ = a.api.Answer(ctx, cq.ID) // stop the client spinner promptly, before any guard can return early
 		msg := cq.Message.Message    // MaybeInaccessibleMessage.Message; nil when inaccessible
 		if msg == nil {
@@ -157,12 +235,16 @@ func (a *Adapter) onUpdate(ctx context.Context, u *models.Update) {
 		})
 	case u.Message != nil:
 		m := u.Message
-		if a.seen.seen("msg:" + itoa64(int64(m.ID)) + ":" + itoa64(m.Chat.ID)) {
-			return
-		}
 		var userID int64
 		if m.From != nil {
 			userID = m.From.ID
+		}
+		if !a.allowed(m.Chat.ID, userID) {
+			log.Printf("telegram: denied update from chat=%d user=%d", m.Chat.ID, userID)
+			return
+		}
+		if a.seen.seen("msg:" + itoa64(int64(m.ID)) + ":" + itoa64(m.Chat.ID)) {
+			return
 		}
 		a.handleMessage(ctx, inMessage{
 			ChatID: m.Chat.ID, ChatType: string(m.Chat.Type), MessageID: m.ID, UserID: userID,

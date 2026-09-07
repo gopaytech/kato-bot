@@ -2,7 +2,7 @@
 
 Chat adapter (Lark + Telegram) for kato troubleshooting flows
 
-![Version: 0.5.0](https://img.shields.io/badge/Version-0.5.0-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 0.5.0](https://img.shields.io/badge/AppVersion-0.5.0-informational?style=flat-square) [![made with Go](https://img.shields.io/badge/made%20with-Go-brightgreen)](http://golang.org) [![Github main branch build](https://img.shields.io/github/actions/workflow/status/gopaytech/kato-bot/main.yml?branch=main)](https://github.com/gopaytech/kato-bot/actions/workflows/main.yml) [![GitHub issues](https://img.shields.io/github/issues/gopaytech/kato-bot)](https://github.com/gopaytech/kato-bot/issues) [![GitHub pull requests](https://img.shields.io/github/issues-pr/gopaytech/kato-bot)](https://github.com/gopaytech/kato-bot/pulls)
+![Version: 0.5.1](https://img.shields.io/badge/Version-0.5.1-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 0.5.1](https://img.shields.io/badge/AppVersion-0.5.1-informational?style=flat-square) [![made with Go](https://img.shields.io/badge/made%20with-Go-brightgreen)](http://golang.org) [![Github main branch build](https://img.shields.io/github/actions/workflow/status/gopaytech/kato-bot/main.yml?branch=main)](https://github.com/gopaytech/kato-bot/actions/workflows/main.yml) [![GitHub issues](https://img.shields.io/github/issues/gopaytech/kato-bot)](https://github.com/gopaytech/kato-bot/issues) [![GitHub pull requests](https://img.shields.io/github/issues-pr/gopaytech/kato-bot)](https://github.com/gopaytech/kato-bot/pulls)
 
 > A chat adapter for [kato](https://github.com/gopaytech/kato) on **Lark and Telegram**.
 > Invite the bot to a Lark group (or DM/add it on Telegram), pick a cluster, pick a
@@ -74,6 +74,8 @@ below set them on the Deployment):
 | `TELEGRAM_BOT_TOKEN` | (none) | BotFather token; presence enables the Telegram adapter |
 | `TELEGRAM_API_BASE_URL` | `https://api.telegram.org` | override for a self-hosted Bot API server |
 | `TELEGRAM_POLL_TIMEOUT` | `30s` | `getUpdates` long-poll timeout |
+| `TELEGRAM_ALLOWED_CHATS` | (none) | comma-separated allowlist of Telegram chat ids (groups are negative int64); empty means any chat |
+| `TELEGRAM_ALLOWED_USERS` | (none) | comma-separated allowlist of Telegram user ids (positive int64); empty means any user |
 | `KATO_CLUSTERS_FILE` | `/etc/kato-bot/clusters.yaml` | path to the YAML file listing clusters (name → kato URL); at least one required |
 | `KATO_RUN_TIMEOUT` | `360s` | per-run client timeout |
 | `LOG_LEVEL` | `info` | log verbosity (`debug`/`info`/`warn`/`error`) |
@@ -103,6 +105,21 @@ before `go run ./cmd/kato-bot` (the binary reads the environment; it does not au
   the trigger message). It fills use-case inputs by asking one question at a time;
   reply with each value, or send `/cancel` to abort.
 - Lark and Telegram can run together in one deployment; configure either or both.
+
+By default the Telegram bot is open — anyone who finds it (DMs it, or is in a group it's
+added to) can use it. For production, restrict access with `telegram.allowedChats` and/or
+`telegram.allowedUsers` (rendered as `TELEGRAM_ALLOWED_CHATS`/`TELEGRAM_ALLOWED_USERS`):
+get your own user id from [@userinfobot](https://t.me/userinfobot), and find a group's
+chat id the same way (add it to the group briefly) — or just check kato-bot's logs, since
+every denied update is logged with its chat and user id (`telegram: denied update from
+chat=... user=...`), which is the easiest way to discover the id to allowlist once you've
+tried using the bot and been denied. When both lists are set, a chat/user pair must match
+**both** (AND) to be allowed; when a list is empty, that dimension is unrestricted. Both
+empty (the default) is fully open. Note that setting only `telegram.allowedUsers` (leaving
+`allowedChats` empty) still lets an allowed user trigger the bot in any group they're a
+member of, where kato's (read-only) output becomes visible to that group's other,
+non-allowlisted members — so also set `allowedChats` whenever responses must not appear to
+a broader group audience.
 
 ## Installing
 
@@ -151,7 +168,7 @@ helm install my-kato-bot kato-bot/kato-bot --values values.yaml
 | groups | list | `[]` | Predefined groups: several usecases (each with its own targets) in one cluster. cluster must match a configured cluster. |
 | image.pullPolicy | string | `"IfNotPresent"` | Image pull policy. |
 | image.repository | string | `"ghcr.io/gopaytech/kato-bot"` | Container image repository. |
-| image.tag | string | `"v0.5.0"` | Image tag. Defaults to the chart appVersion when empty. |
+| image.tag | string | `"v0.5.1"` | Image tag. Defaults to the chart appVersion when empty. |
 | katoRunTimeout | string | `"360s"` | Per-run client timeout for kato's synchronous POST /run (Go duration). |
 | lark.appId | string | `""` | Lark app id. Required unless lark.existingSecret is set or only Telegram is enabled. |
 | lark.appSecret | string | `""` | Lark app secret. Required unless lark.existingSecret is set. |
@@ -161,6 +178,8 @@ helm install my-kato-bot kato-bot/kato-bot --values values.yaml
 | maxConcurrentRuns | int | `4` | Max in-flight kato runs before new submits get a "kato is busy" card. |
 | nodeSelector | object | `{}` | Node selector for pod scheduling. |
 | resources | object | `{}` | Pod resource requests and limits. |
+| telegram.allowedChats | list | `[]` | Restrict which Telegram chats may use the bot (allowlist). Empty (the default) means open — any chat that can reach the bot may use it. Chat ids for groups are NEGATIVE int64 (e.g. -1001234567890); a private chat's id equals the user's id (positive). Combined with allowedUsers via AND: when both are set, a chat/user pair must satisfy both to be let through. Strongly recommended for production — find ids with @userinfobot, or read kato-bot's logs (every denied update logs its chat and user id). |
+| telegram.allowedUsers | list | `[]` | Restrict which Telegram users may use the bot (allowlist). Empty (the default) means open — any user may use the bot (subject to allowedChats). User ids are always positive int64. Combined with allowedChats via AND (see above). Strongly recommended for production. |
 | telegram.apiBaseUrl | string | `"https://api.telegram.org"` | Telegram Bot API base URL (override only for a self-hosted Bot API server). |
 | telegram.botToken | string | `""` | Telegram bot token from BotFather. Required when telegram.enabled and no existingSecret. |
 | telegram.enabled | bool | `false` | Enable the Telegram adapter. When true, a bot token is required (inline or via existingSecret). |

@@ -2,7 +2,7 @@ image:
   # -- Container image repository.
   repository: ghcr.io/gopaytech/kato-bot
   # -- Image tag. Defaults to the chart appVersion when empty.
-  tag: "v0.5.0"
+  tag: "v0.5.1"
   # -- Image pull policy.
   pullPolicy: IfNotPresent
 
@@ -67,6 +67,19 @@ telegram:
   apiBaseUrl: https://api.telegram.org
   # -- getUpdates long-poll timeout (Go duration).
   pollTimeout: 30s
+  # -- Restrict which Telegram chats may use the bot (allowlist). Empty (the default)
+  # means open — any chat that can reach the bot may use it. Chat ids for groups are
+  # NEGATIVE int64 (e.g. -1001234567890); a private chat's id equals the user's id
+  # (positive). Combined with allowedUsers via AND: when both are set, a chat/user
+  # pair must satisfy both to be let through. Strongly recommended for production —
+  # find ids with @userinfobot, or read kato-bot's logs (every denied update logs
+  # its chat and user id).
+  allowedChats: []
+  # -- Restrict which Telegram users may use the bot (allowlist). Empty (the default)
+  # means open — any user may use the bot (subject to allowedChats). User ids are
+  # always positive int64. Combined with allowedChats via AND (see above). Strongly
+  # recommended for production.
+  allowedUsers: []
 
 groupSummary:
   # -- Enable the optional LLM group-summary (kato-bot's only LLM use).

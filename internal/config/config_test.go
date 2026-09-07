@@ -553,6 +553,96 @@ func TestLoadPartialLarkOtherSideFails(t *testing.T) {
 	}
 }
 
+func TestLoadTelegramAllowedChatsAndUsers(t *testing.T) {
+	setRequiredEnv(t)
+	t.Setenv("TELEGRAM_BOT_TOKEN", "123:abc")
+	t.Setenv("TELEGRAM_ALLOWED_CHATS", " -1001234567890, 123 ")
+	t.Setenv("TELEGRAM_ALLOWED_USERS", "42, 43")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("err = %v", err)
+	}
+	wantChats := []int64{-1001234567890, 123}
+	if len(cfg.TelegramAllowedChats) != len(wantChats) {
+		t.Fatalf("TelegramAllowedChats = %v, want %v", cfg.TelegramAllowedChats, wantChats)
+	}
+	for i, v := range wantChats {
+		if cfg.TelegramAllowedChats[i] != v {
+			t.Errorf("TelegramAllowedChats[%d] = %d, want %d", i, cfg.TelegramAllowedChats[i], v)
+		}
+	}
+	wantUsers := []int64{42, 43}
+	if len(cfg.TelegramAllowedUsers) != len(wantUsers) {
+		t.Fatalf("TelegramAllowedUsers = %v, want %v", cfg.TelegramAllowedUsers, wantUsers)
+	}
+	for i, v := range wantUsers {
+		if cfg.TelegramAllowedUsers[i] != v {
+			t.Errorf("TelegramAllowedUsers[%d] = %d, want %d", i, cfg.TelegramAllowedUsers[i], v)
+		}
+	}
+}
+
+func TestLoadTelegramAllowedListsEmptyIsNil(t *testing.T) {
+	setRequiredEnv(t)
+	t.Setenv("TELEGRAM_BOT_TOKEN", "123:abc")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("err = %v", err)
+	}
+	if cfg.TelegramAllowedChats != nil {
+		t.Errorf("TelegramAllowedChats = %v, want nil", cfg.TelegramAllowedChats)
+	}
+	if cfg.TelegramAllowedUsers != nil {
+		t.Errorf("TelegramAllowedUsers = %v, want nil", cfg.TelegramAllowedUsers)
+	}
+}
+
+func TestLoadTelegramAllowedChatsBadValue(t *testing.T) {
+	setRequiredEnv(t)
+	t.Setenv("TELEGRAM_BOT_TOKEN", "123:abc")
+	t.Setenv("TELEGRAM_ALLOWED_CHATS", "1,abc")
+
+	if _, err := Load(); err == nil {
+		t.Fatal("expected error on malformed TELEGRAM_ALLOWED_CHATS")
+	}
+}
+
+func TestLoadTelegramAllowedUsersBadValue(t *testing.T) {
+	setRequiredEnv(t)
+	t.Setenv("TELEGRAM_BOT_TOKEN", "123:abc")
+	t.Setenv("TELEGRAM_ALLOWED_USERS", "1,abc")
+
+	if _, err := Load(); err == nil {
+		t.Fatal("expected error on malformed TELEGRAM_ALLOWED_USERS")
+	}
+}
+
+func TestParseInt64List(t *testing.T) {
+	got, err := parseInt64List("TELEGRAM_ALLOWED_CHATS", " -1001234567890 , 123 ,, 456")
+	if err != nil {
+		t.Fatalf("err = %v", err)
+	}
+	want := []int64{-1001234567890, 123, 456}
+	if len(got) != len(want) {
+		t.Fatalf("got = %v, want %v", got, want)
+	}
+	for i, v := range want {
+		if got[i] != v {
+			t.Errorf("got[%d] = %d, want %d", i, got[i], v)
+		}
+	}
+
+	if got, err := parseInt64List("TELEGRAM_ALLOWED_CHATS", ""); err != nil || got != nil {
+		t.Errorf("empty input: got = %v, err = %v, want nil, nil", got, err)
+	}
+
+	if _, err := parseInt64List("TELEGRAM_ALLOWED_CHATS", "1,foo"); err == nil {
+		t.Error("expected error on malformed element")
+	}
+}
+
 func TestLoadBothPlatformsOK(t *testing.T) {
 	t.Setenv("LARK_APP_ID", "cli_x")
 	t.Setenv("LARK_APP_SECRET", "secret_x")
