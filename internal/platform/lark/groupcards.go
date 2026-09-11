@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/gopaytech/kato-bot/internal/core"
+	"github.com/gopaytech/kato-bot/internal/summaryfmt"
 )
 
 // buildGroupParentCard renders the progress/rollup card. done is how many of
@@ -82,7 +83,7 @@ func buildServiceReplyCard(g core.Group, r core.ServiceResult) string {
 	}
 	elements = append(elements,
 		map[string]any{"tag": "hr"},
-		markdown("📋 **Summary**\n"+r.Summary),
+		markdown("📋 **Summary**\n"+summaryfmt.ToMarkdown(r.Summary, r.SummaryFormat)),
 		markdown("_run: "+r.Run+"_"),
 	)
 	return card2(g.Name, elements)

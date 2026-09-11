@@ -43,7 +43,11 @@ type RunResult struct {
 	Warning  string
 	Healthy  *bool  // health verdict from kato: true/false; nil = unknown
 	Headline string // one-line reason for Healthy; empty when unknown
-	Err      error
+	// SummaryFormat says how to interpret Summary: "markdown" (default/empty) or
+	// "json" (a {verdict,headline,blocks[]} document). Renderers convert either
+	// into the target chat platform's own format.
+	SummaryFormat string
+	Err           error
 }
 
 // KatoClient is the kato REST surface the core depends on (implemented by internal/kato).

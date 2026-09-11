@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/gopaytech/kato-bot/internal/core"
+	"github.com/gopaytech/kato-bot/internal/summaryfmt"
 )
 
 // jsonStr marshals a card object to a compact JSON string. Card objects are built
@@ -271,7 +272,7 @@ func buildResultCard(cluster, useCase string, inputs map[string]string, res core
 		}
 		elements = append(elements,
 			map[string]any{"tag": "hr"},
-			markdown("📋 **Summary**\n"+res.Summary),
+			markdown("📋 **Summary**\n"+summaryfmt.ToMarkdown(res.Summary, res.SummaryFormat)),
 			map[string]any{"tag": "hr"},
 			markdown("_run: "+res.Run+"_"),
 		)

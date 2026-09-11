@@ -10,6 +10,7 @@ import (
 	"github.com/go-telegram/bot/models"
 
 	"github.com/gopaytech/kato-bot/internal/core"
+	"github.com/gopaytech/kato-bot/internal/summaryfmt"
 )
 
 const tgMaxMessage = 4096
@@ -108,8 +109,8 @@ func resultText(cluster, uc string, inputs map[string]string, res core.RunResult
 	if res.Headline != "" {
 		fmt.Fprintf(&b, "<b>%s</b>\n", esc(res.Headline))
 	}
-	if s := strings.TrimSpace(res.Summary); s != "" {
-		b.WriteString(esc(s))
+	if strings.TrimSpace(res.Summary) != "" {
+		b.WriteString(summaryfmt.ToTelegramHTML(res.Summary, res.SummaryFormat))
 	}
 	if res.Warning != "" {
 		fmt.Fprintf(&b, "\n⚠️ %s", esc(res.Warning))

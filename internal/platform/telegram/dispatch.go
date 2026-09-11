@@ -9,6 +9,7 @@ import (
 
 	"github.com/gopaytech/kato-bot/internal/core"
 	"github.com/gopaytech/kato-bot/internal/summary"
+	"github.com/gopaytech/kato-bot/internal/summaryfmt"
 )
 
 // dedup drops repeated update_ids (Telegram can redeliver after a crash before
@@ -167,7 +168,7 @@ func (a *Adapter) runGroup(ctx context.Context, v core.RunGroup) {
 			// lands in chunk 0 since we chunk the full built string. Each chunk is
 			// independent: a later chunk's Send failure is logged but doesn't stop
 			// earlier/subsequent chunks from being attempted.
-			full := "<b>Summary — " + esc(g.Name) + "</b>\n" + esc(text)
+			full := "<b>Summary — " + esc(g.Name) + "</b>\n" + summaryfmt.ToTelegramHTML(text, "markdown")
 			gs := a.groupSender()
 			for _, part := range chunk4096(full) {
 				if _, e := gs.Send(bg, chat, part, nil); e != nil {
