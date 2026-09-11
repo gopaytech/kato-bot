@@ -89,16 +89,17 @@ func (r *GroupRegistry) ForCluster(cluster string) []Group {
 
 // ServiceResult is one target's outcome within a group run.
 type ServiceResult struct {
-	Index    int
-	UseCase  string
-	Target   map[string]string
-	Run      string
-	Phase    string
-	Summary  string
-	Warning  string
-	Healthy  *bool
-	Headline string
-	Err      error
+	Index         int
+	UseCase       string
+	Target        map[string]string
+	Run           string
+	Phase         string
+	Summary       string
+	Warning       string
+	Healthy       *bool
+	Headline      string
+	SummaryFormat string // "markdown" (default) or "json"; how to read Summary
+	Err           error
 }
 
 // Bucket classifies the result: errored (check failed to run) beats verdict.
@@ -303,6 +304,7 @@ func (gr *GroupRunner) runOne(ctx context.Context, kc KatoClient, maxRetries, id
 		if err == nil {
 			sr.Run, sr.Phase, sr.Summary, sr.Warning = res.Run, res.Phase, res.Summary, res.Warning
 			sr.Healthy, sr.Headline = res.Healthy, res.Headline
+			sr.SummaryFormat = res.SummaryFormat
 			return sr
 		}
 		lastErr = err
