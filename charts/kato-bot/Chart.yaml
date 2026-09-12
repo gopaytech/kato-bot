@@ -2,5 +2,5 @@ apiVersion: v2
 name: kato-bot
 description: Chat adapter (Lark + Telegram) for kato troubleshooting flows
 type: application
-version: 0.5.1
-appVersion: "0.5.1"
+version: 0.6.0
+appVersion: "0.6.0"

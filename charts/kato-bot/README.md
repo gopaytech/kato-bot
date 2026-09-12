@@ -2,7 +2,7 @@
 
 Chat adapter (Lark + Telegram) for kato troubleshooting flows
 
-![Version: 0.5.1](https://img.shields.io/badge/Version-0.5.1-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 0.5.1](https://img.shields.io/badge/AppVersion-0.5.1-informational?style=flat-square) [![made with Go](https://img.shields.io/badge/made%20with-Go-brightgreen)](http://golang.org) [![Github main branch build](https://img.shields.io/github/actions/workflow/status/gopaytech/kato-bot/main.yml?branch=main)](https://github.com/gopaytech/kato-bot/actions/workflows/main.yml) [![GitHub issues](https://img.shields.io/github/issues/gopaytech/kato-bot)](https://github.com/gopaytech/kato-bot/issues) [![GitHub pull requests](https://img.shields.io/github/issues-pr/gopaytech/kato-bot)](https://github.com/gopaytech/kato-bot/pulls)
+![Version: 0.6.0](https://img.shields.io/badge/Version-0.6.0-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 0.6.0](https://img.shields.io/badge/AppVersion-0.6.0-informational?style=flat-square) [![made with Go](https://img.shields.io/badge/made%20with-Go-brightgreen)](http://golang.org) [![Github main branch build](https://img.shields.io/github/actions/workflow/status/gopaytech/kato-bot/main.yml?branch=main)](https://github.com/gopaytech/kato-bot/actions/workflows/main.yml) [![GitHub issues](https://img.shields.io/github/issues/gopaytech/kato-bot)](https://github.com/gopaytech/kato-bot/issues) [![GitHub pull requests](https://img.shields.io/github/issues-pr/gopaytech/kato-bot)](https://github.com/gopaytech/kato-bot/pulls)
 
 > A chat adapter for [kato](https://github.com/gopaytech/kato) on **Lark and Telegram**.
 > Invite the bot to a Lark group (or DM/add it on Telegram), pick a cluster, pick a
@@ -168,7 +168,7 @@ helm install my-kato-bot kato-bot/kato-bot --values values.yaml
 | groups | list | `[]` | Predefined groups: several usecases (each with its own targets) in one cluster. cluster must match a configured cluster. |
 | image.pullPolicy | string | `"IfNotPresent"` | Image pull policy. |
 | image.repository | string | `"ghcr.io/gopaytech/kato-bot"` | Container image repository. |
-| image.tag | string | `"v0.5.1"` | Image tag. Defaults to the chart appVersion when empty. |
+| image.tag | string | `"v0.6.0"` | Image tag. Defaults to the chart appVersion when empty. |
 | katoRunTimeout | string | `"360s"` | Per-run client timeout for kato's synchronous POST /run (Go duration). |
 | lark.appId | string | `""` | Lark app id. Required unless lark.existingSecret is set or only Telegram is enabled. |
 | lark.appSecret | string | `""` | Lark app secret. Required unless lark.existingSecret is set. |

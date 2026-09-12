@@ -2,7 +2,7 @@ image:
   # -- Container image repository.
   repository: ghcr.io/gopaytech/kato-bot
   # -- Image tag. Defaults to the chart appVersion when empty.
-  tag: "v0.5.1"
+  tag: "v0.6.0"
   # -- Image pull policy.
   pullPolicy: IfNotPresent
 
