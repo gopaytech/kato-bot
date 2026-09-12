@@ -146,7 +146,7 @@ helm install kato-bot charts/kato-bot -n kato --set lark.existingSecret=my-lark-
 Or from the packaged chart repository:
 
 ```console
-helm repo add kato-bot https://gopaytech.github.io/kato-bot/
+helm repo add kato-bot https://gopaytech.github.io/kato-bot/charts/releases/
 helm install my-kato-bot kato-bot/kato-bot --values values.yaml
 ```
 
